@@ -63,3 +63,5 @@ async def signIn(
         cur.close()
 
     await interaction.response.send_message("You are now signed in.", ephemeral=True)
+
+bot.run(TOKEN)
