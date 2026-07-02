@@ -47,23 +47,37 @@ async def sign_in(
     discordID = interaction.user.id
 
     try: 
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO players (DiscordID, UserNameSteam, IsSubstitute)
-            VALUES (%s, %s, %s)
-            """,
-            (discordID, steam_username, be_substitute)
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO players (DiscordID, UserNameSteam, IsSubstitute)
+                VALUES (%s, %s, %s)
+                """,
+                (discordID, steam_username, be_substitute)
+            )
+            
         conn.commit()
-        
-    except psycopg.Error as e:
+
+    except psycopg.errors.UniqueViolation:
+        conn.rollback()
+        await interaction.response.send_message(
+            "You are already signed up.",
+            ephemeral=True
+        )
+
+    except psycopg.errors.CheckViolation:
         conn.rollback()
         await interaction.response.send_message("The input data was invalid. Make sure that the Steam name is valid.", ephemeral=True)
-        return
-    finally:
-        cur.close()
 
-    await interaction.response.send_message("You are now signed in.", ephemeral=True)
+    except psycopg.Error:
+        conn.rollback()
+        await interaction.response.send_message(
+            "An internal database error occurred.",
+            ephemeral=True
+        )
+        raise
+        
+    else:
+        await interaction.response.send_message("You are now signed in.", ephemeral=True)
 
 bot.run(TOKEN)
