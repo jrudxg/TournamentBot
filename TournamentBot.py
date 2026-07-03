@@ -283,10 +283,6 @@ class acceptFriendshipInviteView(discord.ui.View):
             )
             conn.commit()
 
-        await interaction.response.send_message(
-            "Friend request denied. Please leave the thread manually."
-        )
-
-
+        await interaction.response.send_message("Friend request denied. Please leave the thread manually.")
 
 bot.run(TOKEN)
