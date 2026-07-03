@@ -26,18 +26,6 @@ async def on_ready():
     await bot.tree.sync()
     print(f"{bot.user} is online!")
 
-@bot.event
-async def on_message(msg):
-    if msg.author.id != bot.user.id:
-        await msg.channel.send(f"Interesting message, {msg.author.mention}")
-    
-    await bot.process_commands(msg)
-
-@bot.tree.command(name="greet", description="Sends a greeting to the user")
-async def greet(interaction: discord.Interaction):
-    username = interaction.user.mention
-    await interaction.response.send_message(f"Hello there, {username}")
-
 @bot.tree.command(name="sign_in", description="Signs you into the tournament as a player (not watcher)")
 async def sign_in(
     interaction: discord.Interaction, 
