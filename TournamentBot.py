@@ -150,6 +150,21 @@ async def send_friendship_invite(
     with conn.cursor() as cur:
         cur.execute(
             """
+            SELECT is_substitute
+            FROM players
+            WHERE discord_id = %s
+            """,
+            (interaction.user.id,)
+        )
+        row = cur.fetchone()
+        if row is not None:
+            is_substitute = row[0]
+            if is_substitute:
+                await interaction.response.send_message("You can't create a friend request if you are part of the substitute team.")
+                return
+
+        cur.execute(
+            """
             UPDATE players
             SET friend_code = %s
             WHERE discord_id = %s
@@ -160,10 +175,10 @@ async def send_friendship_invite(
         if cur.rowcount == 0:
             await interaction.response.send_message("You are either not signed in or already send out an unanswered friendship request. If you have another friendship request, make sure to cancel that one.", ephemeral=True)
             return
-        
+
         conn.commit()
     
-    friendChannel : discord.TextChannel
+    friendChannel : discord.TextChannel = None
 
     channels = interaction.guild.text_channels
     for channel in channels:
@@ -184,8 +199,8 @@ async def send_friendship_invite(
         auto_archive_duration   = 10080
     )
 
-    thread.add_user(interaction.user)
-    thread.add_user(user)
+    await thread.add_user(interaction.user)
+    await thread.add_user(user)
 
     await thread.send(
         content= textwrap.dedent(f"""
@@ -212,7 +227,26 @@ class acceptFriendshipInviteView(discord.ui.View):
         style=discord.ButtonStyle.success
     )
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if (interaction.user.id != self.receiver_id):
+            await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.")
+            return
+
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT is_substitute
+                FROM players
+                WHERE discord_id = %s
+                """,
+                (interaction.user.id,)
+            )
+            row = cur.fetchone()
+            if row is not None:
+                is_substitute = row[0]
+                if is_substitute:
+                    await interaction.response.send_message("You can't create a friend request if you are part of the substitute team.")
+                    return
+
             cur.execute(
                 """
                 UPDATE players
@@ -239,6 +273,10 @@ class acceptFriendshipInviteView(discord.ui.View):
     )
     async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
 
+        if (interaction.user.id != self.receiver_id):
+            await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.")
+            return
+
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -247,8 +285,9 @@ class acceptFriendshipInviteView(discord.ui.View):
                 WHERE discord_id = %s
                 AND friend_code IS NULL
                 """,
-                (self.receiver_id)
+                (self.sender_id,)
             )
+            conn.commit()
 
         await interaction.response.send_message(
             "Friend request denied. Please leave the thread manually."
