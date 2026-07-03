@@ -118,10 +118,7 @@ async def sign_in(
 
     except psycopg.errors.UniqueViolation:
         conn.rollback()
-        await interaction.response.send_message(
-            "You are already signed up.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("You are already signed up.", ephemeral=True)
 
     except psycopg.errors.CheckViolation:
         conn.rollback()
@@ -129,10 +126,7 @@ async def sign_in(
 
     except psycopg.Error:
         conn.rollback()
-        await interaction.response.send_message(
-            "An internal database error occurred.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("An internal database error occurred.",ephemeral=True)
         raise
         
     else:
@@ -160,7 +154,7 @@ async def send_friendship_invite(
         if row is not None:
             is_substitute = row[0]
             if is_substitute:
-                await interaction.response.send_message("You can't create a friend request if you are part of the substitute team.")
+                await interaction.response.send_message("You can't create a friend request if you are part of the substitute team.", ephemeral=True)
                 return
 
         cur.execute(
@@ -228,7 +222,7 @@ class acceptFriendshipInviteView(discord.ui.View):
     )
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         if (interaction.user.id != self.receiver_id):
-            await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.")
+            await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.", ephemeral=True)
             return
 
         with conn.cursor() as cur:
@@ -244,7 +238,7 @@ class acceptFriendshipInviteView(discord.ui.View):
             if row is not None:
                 is_substitute = row[0]
                 if is_substitute:
-                    await interaction.response.send_message("You can't create a friend request if you are part of the substitute team.")
+                    await interaction.response.send_message("You can't accept a friend request if you are part of the substitute team.")
                     return
 
             cur.execute(
@@ -274,7 +268,7 @@ class acceptFriendshipInviteView(discord.ui.View):
     async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
 
         if (interaction.user.id != self.receiver_id):
-            await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.")
+            await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.", ephemeral=True)
             return
 
         with conn.cursor() as cur:
