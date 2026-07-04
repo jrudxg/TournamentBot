@@ -155,6 +155,19 @@ async def send_friendship_invite(
     
     friend_code = uuid.uuid4()
 
+    friendChannel : discord.TextChannel = None
+
+    channels = interaction.guild.text_channels
+    for channel in channels:
+        if channel.name == "friends":
+            friendChannel = channel
+            break
+
+    # discord doesn't allow 0 as the channel id
+    if (friendChannel is None):
+        await interaction.response.send_message(f"{interaction.guild.owner.mention} make sure that there's a \"friends\" channel in your discord. Else the bot can't create threads for the friends function")
+        return
+
     with pool.connection() as conn:
         with conn.cursor() as cur:
             player, error = Queries.selectPlayerWithDiscordID(cur, interaction.user.id)
@@ -185,19 +198,6 @@ async def send_friendship_invite(
                 return
             
             Queries.setInPlayers(cur, 0, "friend_code", friend_code, player)
-    
-    friendChannel : discord.TextChannel = None
-
-    channels = interaction.guild.text_channels
-    for channel in channels:
-        if channel.name == "friends":
-            friendChannel = channel
-            break
-
-    # discord doesn't allow 0 as the channel id
-    if (friendChannel is None):
-        await interaction.response.send_message(f"{interaction.guild.owner.mention} make sure that there's a friend channel in your discord. Else the bot can't create threads for the friends function")
-        return
 
     thread = await friendChannel.create_thread(
         name                    = f"friend request from {interaction.user.display_name}",
@@ -253,10 +253,8 @@ class acceptFriendshipInviteView(discord.ui.View):
         channel = interaction.channel
         if channel is None: return
 
-        channelThread = channel.get_thread(self.thread_id)
-        if channelThread is None: return
 
-        if (channelThread.name == "friend group"):
+        if (channel.name == "friend group"):
             await interaction.response.send_message("You already accepted the friend request.", ephemeral=True)
             return
         
