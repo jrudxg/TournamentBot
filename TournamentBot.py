@@ -167,7 +167,7 @@ async def send_friendship_invite(
             (friend_code, interaction.user.id)
         )
         if cur.rowcount == 0:
-            await interaction.response.send_message("You are either not signed in or already send out an unanswered friendship request. If you have another friendship request, make sure to cancel that one.", ephemeral=True)
+            await interaction.response.send_message("You are either not signed in or already send out an friendship request / are part of a friend group. If you have another friendship request, make sure to cancel that one.", ephemeral=True)
             return
 
         conn.commit()
@@ -251,7 +251,7 @@ class acceptFriendshipInviteView(discord.ui.View):
                 (self.friend_code, self.receiver_id)
             )
             if cur.rowcount == 0:
-                await interaction.response.send_message("You are not signed in", ephemeral=True)
+                await interaction.response.send_message("You are either not signed in or already send out an friendship request / are part of a friend group. If you have another friendship request, make sure to cancel that one.", ephemeral=True)
                 return
         
             conn.commit()
