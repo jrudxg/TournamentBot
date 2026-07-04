@@ -17,7 +17,7 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 pool = ConnectionPool(
-    os.getenv("postgresql://neondb_owner:npg_rSwaRGpoA3j9@ep-green-darkness-aszevld8-pooler.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"),
+    "postgresql://neondb_owner:npg_rSwaRGpoA3j9@ep-green-darkness-aszevld8-pooler.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
     min_size=1,
     max_size=5,
     kwargs={"row_factory": dict_row},
