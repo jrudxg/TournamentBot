@@ -289,7 +289,7 @@ class acceptFriendshipInviteView(discord.ui.View):
                 
                 Queries.setInPlayers(cur, 0, "friend_code", self.friend_code, player)
 
-        await interaction.channel.get_thread(self.thread_id).edit(name="friend group")
+        await interaction.channel.edit(name="friend group")
         await interaction.response.send_message(
             "Friend request accepted."
         )
