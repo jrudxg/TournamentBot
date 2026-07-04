@@ -305,6 +305,14 @@ class acceptFriendshipInviteView(discord.ui.View):
             await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.", ephemeral=True)
             return
         
+        channel = interaction.channel
+        if channel is None: return
+
+
+        if (channel.name == "friend group"):
+            await interaction.response.send_message("You have to use the command /leave_friendship to leave this friendship.", ephemeral=True)
+            return
+        
         with pool.connection() as conn:
             with conn.cursor() as cur:
                 error = Queries.setInPlayers(cur, self.sender_id, "friend_code", None)
