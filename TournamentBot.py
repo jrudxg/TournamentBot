@@ -86,7 +86,6 @@ async def change_substitute(
             
             textMessage = "You are now part of the substitute team." if be_substitute else "You are no longer part of the substitute team"
             await interaction.response.send_message(textMessage, ephemeral=True)
-        conn.
 
 @bot.tree.command(name="sign_out", description="Signs you out of the tournament as a player (not watcher)")
 async def sign_out(
