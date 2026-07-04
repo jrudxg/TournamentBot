@@ -1,12 +1,15 @@
 import os
 import discord
 import psycopg
+from psycopg.rows import dict_row
 from discord.ext import commands
 from discord import app_commands
 from dotenv import load_dotenv
 import textwrap
 import uuid
 
+import Queries
+from Queries import QueryErrors
 from keep_alive import keep_alive
 
 load_dotenv()
@@ -34,20 +37,23 @@ async def change_steam_username(
     steam_username: str, 
 ):
     discordID = interaction.user.id
+    
+    with conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            error = Queries.setInPlayers(cur, discordID, "username_steam", steam_username)
 
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE players
-            SET username_steam = %s
-            WHERE discord_id = %s
-            """,
-            (steam_username, discordID)
-        )
-        if cur.rowcount == 0:
-            await interaction.response.send_message("You are not signed in", ephemeral=True)
-        else:
-            conn.commit()
+            if (error == QueryErrors.PLAYER_NOT_FOUND):
+                await interaction.response.send_message("You are not signed in.", ephemeral=True)
+                return
+
+            if (error == QueryErrors.UNKNOWN_ERROR):
+                await interaction.response.send_message("An unknown error has been found.")
+                return
+            
+            if (error == QueryErrors.PARAMETER_NOT_FOUND):
+                await interaction.response.send_message("The parameter username_steam has not been found as a column.")
+                return
+            
             await interaction.response.send_message(f"steam username was updated to {steam_username}.",ephemeral=True)
 
 
@@ -58,23 +64,24 @@ async def change_substitute(
 ):
     discordID = interaction.user.id
 
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE players
-            SET is_substitute = %s
-            WHERE discord_id = %s
-            """,
-            (be_substitute, discordID)
-        )
-        if cur.rowcount == 0:
-            await interaction.response.send_message("You are not signed in", ephemeral=True)
-        else:
-            conn.commit()
+    with conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            error = Queries.setInPlayers(cur, discordID, "is_substitute", be_substitute)
+
+            if (error == QueryErrors.PLAYER_NOT_FOUND):
+                await interaction.response.send_message("You are not signed in.", ephemeral=True)
+                return
+
+            if (error == QueryErrors.UNKNOWN_ERROR):
+                await interaction.response.send_message("An unknown error has been found.")
+                return
+            
+            if (error == QueryErrors.PARAMETER_NOT_FOUND):
+                await interaction.response.send_message("The parameter is_substitute has not been found as a column.")
+                return
+            
             textMessage = "You are now part of the substitute team." if be_substitute else "You are no longer part of the substitute team"
             await interaction.response.send_message(textMessage, ephemeral=True)
-
-    
 
 
 @bot.tree.command(name="sign_out", description="Signs you out of the tournament as a player (not watcher)")
@@ -83,19 +90,19 @@ async def sign_out(
 ):
     discordID = interaction.user.id
 
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            DELETE FROM players
-            WHERE discord_id = %s
-            """,
-            (discordID,)
-        )
-        if cur.rowcount == 0:
-            await interaction.response.send_message("You are are currently not signed in.", ephemeral=True)
-        else:
-            conn.commit()
-            await interaction.response.send_message("You are now signed out.", ephemeral=True)
+    with conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """--sql
+                DELETE FROM players
+                WHERE discord_id = %s
+                """,
+                (discordID,)
+            )
+            if cur.rowcount == 0:
+                await interaction.response.send_message("You are are currently not signed in.", ephemeral=True)
+            else:
+                await interaction.response.send_message("You are now signed out.", ephemeral=True)
 
 
 @bot.tree.command(name="sign_in", description="Signs you into the tournament as a player (not watcher)")
@@ -106,32 +113,35 @@ async def sign_in(
 ):
     discordID = interaction.user.id
 
-    try: 
-        with conn.cursor() as cur:
+    steam_username = steam_username.strip()
+    if not steam_username:
+        await interaction.response.send_message("The input data was invalid. Make sure that tyour Steam name is not empty.", ephemeral=True)
+        return
+    if len(steam_username) > 32:
+        await interaction.response.send_message("The input data was invalid. Make sure that tyour Steam name is not bigger than 32 characters.", ephemeral=True)
+        return
+    
+    with conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            uselessObject, error = Queries.selectPlayerWithDiscordID(cur, discordID)
+
+            if (error == QueryErrors.UNKNOWN_ERROR):
+                await interaction.response.send_message("An unknown error has been found.")
+                return
+           
+            if (error != QueryErrors.PLAYER_NOT_FOUND):
+                await interaction.response.send_message("You are already signed up.", ephemeral=True)
+                return
+
+
             cur.execute(
-                """
+                """--sql
                 INSERT INTO players (discord_id, username_steam, is_substitute)
                 VALUES (%s, %s, %s)
                 """,
                 (discordID, steam_username, be_substitute)
             )
-
-    except psycopg.errors.UniqueViolation:
-        conn.rollback()
-        await interaction.response.send_message("You are already signed up.", ephemeral=True)
-
-    except psycopg.errors.CheckViolation:
-        conn.rollback()
-        await interaction.response.send_message("The input data was invalid. Make sure that the Steam name is valid.", ephemeral=True)
-
-    except psycopg.Error:
-        conn.rollback()
-        await interaction.response.send_message("An internal database error occurred.",ephemeral=True)
-        raise
-        
-    else:
-        conn.commit()
-        await interaction.response.send_message("You are now signed in.", ephemeral=True)
+            await interaction.response.send_message("You are now signed in.", ephemeral=True)
 
 @bot.tree.command(name="send_friendship_invite", description="Sends a friendship request to the other player so you")
 async def send_friendship_invite(
@@ -141,36 +151,36 @@ async def send_friendship_invite(
     
     friend_code = uuid.uuid4()
 
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT is_substitute
-            FROM players
-            WHERE discord_id = %s
-            """,
-            (interaction.user.id,)
-        )
-        row = cur.fetchone()
-        if row is not None:
-            is_substitute = row[0]
-            if is_substitute:
+    with conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            player, error = Queries.selectPlayerWithDiscordID(cur, interaction.user.id)
+
+            if (error == QueryErrors.PLAYER_NOT_FOUND):
+                await interaction.response.send_message("You are not signed in.", ephemeral=True)
+                return
+            
+            if (player is None):
+                await interaction.response.send_message("You are not signed in.", ephemeral=True)
+                return
+            
+            if "is_substitute" not in player:
+                await interaction.response.send_message("The parameter is_substitute has not been found as a column.")
+                return
+            
+            if player["is_substitute"]:
                 await interaction.response.send_message("You can't create a friend request if you are part of the substitute team.", ephemeral=True)
                 return
-
-        cur.execute(
-            """
-            UPDATE players
-            SET friend_code = %s
-            WHERE discord_id = %s
-            AND friend_code IS NULL
-            """,
-            (friend_code, interaction.user.id)
-        )
-        if cur.rowcount == 0:
-            await interaction.response.send_message("You are either not signed in or already send out an friendship request / are part of a friend group. If you have another friendship request, make sure to cancel that one.", ephemeral=True)
-            return
-
-        conn.commit()
+            
+            if "friend_code" not in player:
+                await interaction.response.send_message("The parameter friend_code has not been found as a column.")
+                return
+        
+            if player["friend_code"] is not None:
+                await interaction.response.send_message(" You already sent out a friendship request or are part of a friend group. " \
+                "If you want to send out this request, you have to cancel the other friendship (request)", ephemeral=True)
+                return
+            
+            Queries.setInPlayers(cur, 0, "friend_code", friend_code, player)
     
     friendChannel : discord.TextChannel = None
 
@@ -202,60 +212,82 @@ async def send_friendship_invite(
             {interaction.user.mention} has sent you a friend request.
             Do you want to accept or decline this request?
         """),
-        view = acceptFriendshipInviteView(sender_id=interaction.user.id, receiver_id=user.id, friend_code=friend_code)
+        view = acceptFriendshipInviteView(sender_id=interaction.user.id, receiver_id=user.id, thread_id=thread.id, friend_code=friend_code)
     )
 
     await interaction.response.send_message(f"friend request has been created. Look at {thread.mention}", ephemeral=True)
 
 
 class acceptFriendshipInviteView(discord.ui.View):
-    def __init__(self, sender_id: int, receiver_id: int, friend_code : uuid.UUID):
+    def __init__(
+            self, 
+            sender_id: int, 
+            receiver_id: int,
+            thread_id : int,
+            friend_code : uuid.UUID
+    ):
         super().__init__(timeout=None)
         self.sender_id = sender_id
         self.receiver_id = receiver_id
         self.friend_code = friend_code
+        self.thread_id = thread_id
 
     # the thread, this view is in, will be automatically be deleted if the sender will cancel the request
     @discord.ui.button(
         label="accept request",
         style=discord.ButtonStyle.success
     )
-    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def accept(
+        self, 
+        interaction: discord.Interaction, 
+        button: discord.ui.Button
+    ):
         if (interaction.user.id != self.receiver_id):
             await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.", ephemeral=True)
             return
-
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT is_substitute
-                FROM players
-                WHERE discord_id = %s
-                """,
-                (interaction.user.id,)
-            )
-            row = cur.fetchone()
-            if row is not None:
-                is_substitute = row[0]
-                if is_substitute:
-                    await interaction.response.send_message("You can't accept a friend request if you are part of the substitute team.")
-                    return
-
-            cur.execute(
-                """
-                UPDATE players
-                SET friend_code = %s
-                WHERE discord_id = %s
-                AND friend_code IS NULL
-                """,
-                (self.friend_code, self.receiver_id)
-            )
-            if cur.rowcount == 0:
-                await interaction.response.send_message("You are either not signed in or already send out an friendship request / are part of a friend group. If you have another friendship request, make sure to cancel that one.", ephemeral=True)
-                return
         
-            conn.commit()
+        channel = interaction.channel
+        if channel is None: return
 
+        channelThread = channel.get_thread(self.thread_id)
+        if channelThread is None: return
+
+        if (channelThread.name == "friend group"):
+            await interaction.response.send_message("You already accepted the friend request.", ephemeral=True)
+            return
+        
+        with conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                player, error = Queries.selectPlayerWithDiscordID(cur, self.receiver_id)
+
+                if (error == QueryErrors.PLAYER_NOT_FOUND):
+                    await interaction.response.send_message("You are not signed in.", ephemeral=True)
+                    return
+                
+                if (player is None):
+                    await interaction.response.send_message("You are not signed in.", ephemeral=True)
+                    return
+                
+                if "is_substitute" not in player:
+                    await interaction.response.send_message("The parameter is_substitute has not been found as a column.")
+                    return
+                
+                if player["is_substitute"]:
+                    await interaction.response.send_message("You can't create a friend request if you are part of the substitute team.", ephemeral=True)
+                    return
+                
+                if "friend_code" not in player:
+                    await interaction.response.send_message("The parameter friend_code has not been found as a column.")
+                    return
+            
+                if player["friend_code"] is not None:
+                    await interaction.response.send_message(" You already sent out a friendship request or are part of a friend group. " \
+                    "If you want to send out this request, you have to cancel the other friendship (request)", ephemeral=True)
+                    return
+                
+                Queries.setInPlayers(cur, 0, "friend_code", self.friend_code, player)
+
+        await interaction.channel.get_thread(self.thread_id).edit(name="friend group")
         await interaction.response.send_message(
             "Friend request accepted."
         )
@@ -270,19 +302,16 @@ class acceptFriendshipInviteView(discord.ui.View):
         if (interaction.user.id != self.receiver_id):
             await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.", ephemeral=True)
             return
-
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE players
-                SET friend_code = NULL
-                WHERE discord_id = %s
-                AND friend_code IS NULL
-                """,
-                (self.sender_id,)
-            )
-            conn.commit()
-
+        
+        with conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                error = Queries.setInPlayers(cur, self.sender_id, "friend_code", None)
+        
+        try:
+            receiver = interaction.guild.get_member(self.receiver_id) or await interaction.guild.fetch_member(self.receiver_id)
+            await interaction.channel.remove_user(receiver)
+        except discord.NotFound:
+            pass
         await interaction.response.send_message("Friend request denied. Please leave the thread manually.")
 
 bot.run(TOKEN)
