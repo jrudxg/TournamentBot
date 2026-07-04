@@ -1,6 +1,7 @@
 import os
 import discord
 import psycopg
+from psycopg_pool import ConnectionPool
 from psycopg.rows import dict_row
 from discord.ext import commands
 from discord import app_commands
@@ -15,8 +16,11 @@ from keep_alive import keep_alive
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-conn = psycopg.connect(
-    "postgresql://neondb_owner:npg_rSwaRGpoA3j9@ep-green-darkness-aszevld8-pooler.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+pool = ConnectionPool(
+    os.getenv("postgresql://neondb_owner:npg_rSwaRGpoA3j9@ep-green-darkness-aszevld8-pooler.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"),
+    min_size=1,
+    max_size=5,
+    kwargs={"row_factory": dict_row},
 )
 
 keep_alive()
@@ -38,8 +42,8 @@ async def change_steam_username(
 ):
     discordID = interaction.user.id
     
-    with conn:
-        with conn.cursor(row_factory=dict_row) as cur:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
             error = Queries.setInPlayers(cur, discordID, "username_steam", steam_username)
 
             if (error == QueryErrors.PLAYER_NOT_FOUND):
@@ -64,8 +68,8 @@ async def change_substitute(
 ):
     discordID = interaction.user.id
 
-    with conn:
-        with conn.cursor(row_factory=dict_row) as cur:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
             error = Queries.setInPlayers(cur, discordID, "is_substitute", be_substitute)
 
             if (error == QueryErrors.PLAYER_NOT_FOUND):
@@ -82,7 +86,7 @@ async def change_substitute(
             
             textMessage = "You are now part of the substitute team." if be_substitute else "You are no longer part of the substitute team"
             await interaction.response.send_message(textMessage, ephemeral=True)
-
+        conn.
 
 @bot.tree.command(name="sign_out", description="Signs you out of the tournament as a player (not watcher)")
 async def sign_out(
@@ -90,8 +94,8 @@ async def sign_out(
 ):
     discordID = interaction.user.id
 
-    with conn:
-        with conn.cursor(row_factory=dict_row) as cur:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
             cur.execute(
                 """--sql
                 DELETE FROM players
@@ -121,8 +125,8 @@ async def sign_in(
         await interaction.response.send_message("The input data was invalid. Make sure that tyour Steam name is not bigger than 32 characters.", ephemeral=True)
         return
     
-    with conn:
-        with conn.cursor(row_factory=dict_row) as cur:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
             uselessObject, error = Queries.selectPlayerWithDiscordID(cur, discordID)
 
             if (error == QueryErrors.UNKNOWN_ERROR):
@@ -151,8 +155,8 @@ async def send_friendship_invite(
     
     friend_code = uuid.uuid4()
 
-    with conn:
-        with conn.cursor(row_factory=dict_row) as cur:
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
             player, error = Queries.selectPlayerWithDiscordID(cur, interaction.user.id)
 
             if (error == QueryErrors.PLAYER_NOT_FOUND):
@@ -256,8 +260,8 @@ class acceptFriendshipInviteView(discord.ui.View):
             await interaction.response.send_message("You already accepted the friend request.", ephemeral=True)
             return
         
-        with conn:
-            with conn.cursor(row_factory=dict_row) as cur:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
                 player, error = Queries.selectPlayerWithDiscordID(cur, self.receiver_id)
 
                 if (error == QueryErrors.PLAYER_NOT_FOUND):
@@ -303,8 +307,8 @@ class acceptFriendshipInviteView(discord.ui.View):
             await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.", ephemeral=True)
             return
         
-        with conn:
-            with conn.cursor(row_factory=dict_row) as cur:
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
                 error = Queries.setInPlayers(cur, self.sender_id, "friend_code", None)
         
         try:
