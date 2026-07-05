@@ -1,11 +1,13 @@
 from psycopg import Cursor, sql
 from psycopg.rows import DictRow
 from enum import Enum, auto
+from uuid import UUID
 
 class QueryErrors(Enum):
     NO_ERROR = auto()
     PLAYER_NOT_FOUND = auto()
     PARAMETER_NOT_FOUND = auto()
+    FRIENDCODE_NOT_FOUND = auto()
     UNKNOWN_ERROR = auto()
 
 # set discordID to 0 if player is not None
@@ -79,3 +81,54 @@ def selectPlayerWithDiscordID(
         return None, QueryErrors.PLAYER_NOT_FOUND
     
     return row, QueryErrors.NO_ERROR
+
+# make sure that the discordThreadID actually exists because only the friendCode is tracked
+def insertFriendThread(
+    cur: Cursor[DictRow],
+    discordThreadID: int,
+    friendCode: UUID
+):
+    cur.execute(
+        """--sql
+        INSERT INTO friend_threads (discord_id, friend_code)
+        SELECT %s, %s
+        WHERE EXISTS (
+            SELECT 1 FROM players
+            WHERE friend_code = %s
+        )
+        """,
+        (discordThreadID, friendCode, friendCode)
+    )
+    if cur.rowcount == 0:
+        return QueryErrors.FRIENDCODE_NOT_FOUND
+    return QueryErrors.NO_ERROR
+    
+def removeFriendCodeAndThread(
+    cur: Cursor[DictRow],
+    friend_code : UUID
+):
+    cur.execute(
+        """--sql
+        UPDATE players
+        SET friend_code = NULL
+        WHERE friend_code = %s
+        """,
+        (friend_code,)
+    )
+    amountOfPlayers = cur.rowcount
+
+    if (amountOfPlayers == 0):
+        return None, None, QueryErrors.FRIENDCODE_NOT_FOUND
+    cur.execute(
+        """--sql
+        DELETE FROM friend_threads
+        WHERE friend_code = %s
+        RETURNING discord_id
+        """,
+        (friend_code,)
+    )
+    row = cur.fetchone()
+
+    if (row is None): return None, None, QueryErrors.UNKNOWN_ERROR
+
+    return row[0], amountOfPlayers, QueryErrors.NO_ERROR
