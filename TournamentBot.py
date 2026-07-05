@@ -47,10 +47,10 @@ async def change_steam_username(
     
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            if (len(steam_username.strip() == 0)): 
+            if len(steam_username.strip()) == 0: 
                 await interaction.response.send_message("Your steam username can't be 0 characters long.")
                 return
-            if (len(steam_username.strip > 32)):
+            if len(steam_username.strip) > 32:
                 await interaction.response.send_message("Your steam username can't be longer than 32 characters.")
                 return
 
@@ -207,14 +207,14 @@ async def leave_friendship(
         with conn.cursor() as cur:
             player, error = Queries.selectPlayerWithDiscordID(cur, interaction.user.id)
             if player is None:
-                await interaction.response.send_message(f"An error occured $({error})")
+                await interaction.response.send_message("You are not signed in.", ephemeral=True)
                 return
             
             if player["friend_code"] is None: 
-                await interaction.response.send_message("You currently don't have a friendship and also don't have a pending request.")
-                discordThreadID, amountOfPlayers, error = Queries.removeFriendCodeAndThread(cur, player["friend_code"])
+                await interaction.response.send_message("You currently don't have a friendship and also don't have a pending request.", ephemeral=True)
                 return
 
+            discordThreadID, amountOfPlayers, error = Queries.removeFriendCodeAndThread(cur, player["friend_code"])
             if (discordThreadID == None):
                 await interaction.response.send_message("An unknown error has been found.")
                 return

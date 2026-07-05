@@ -131,4 +131,4 @@ def removeFriendCodeAndThread(
 
     if (row is None): return None, None, QueryErrors.UNKNOWN_ERROR
 
-    return row[0], amountOfPlayers, QueryErrors.NO_ERROR
+    return row["discord_id"], amountOfPlayers, QueryErrors.NO_ERROR
