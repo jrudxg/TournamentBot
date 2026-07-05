@@ -221,7 +221,7 @@ async def leave_friendship(
             
             thread = bot.get_channel(discordThreadID)
             if type(thread) is not discord.Thread:
-                await interaction.response.send_message("An unknown error has been found. id is not from a thread")
+                await interaction.response.send_message("You are in no friendship.", ephemeral=True)
                 return
 
             if (amountOfPlayers == 1):
@@ -379,9 +379,7 @@ class acceptFriendshipInviteView(
                 Queries.setInPlayers(cur, 0, "friend_code", self.friend_code, player)
 
         await interaction.channel.edit(name="friend group")
-        await interaction.response.defer()
         await interaction.response.edit_message(view=None)
-
         await interaction.followup.send("friend request accepted.")
 
     async def _deny(self, interaction: discord.Interaction):
@@ -396,16 +394,16 @@ class acceptFriendshipInviteView(
                 if discordThreadID is None:
                     await interaction.response.send_message("This request was already handled or no longer exists.", ephemeral=True)
                     return
+        
+        await interaction.response.edit_message(view=None)
                 
-            await interaction.response.edit_message(view=None)
-                
-            try:
-                receiver = interaction.guild.get_member(self.receiver_id) or \
-                           await interaction.guild.fetch_member(self.receiver_id)
-                await thread.remove_user(receiver)
-            except discord.NotFound:
-                pass
-            await interaction.response.send_message("friend request denied. Please leave the thread manually.")
+        try:
+            receiver = interaction.guild.get_member(self.receiver_id) or \
+                        await interaction.guild.fetch_member(self.receiver_id)
+            await thread.remove_user(receiver)
+        except discord.NotFound:
+            pass
+        await interaction.followup.send("friend request denied. Please leave the thread manually.")
 
 def buildFriendshipView(sender_id: int, receiver_id: int, friend_code: uuid.UUID) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
