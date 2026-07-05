@@ -38,7 +38,7 @@ async def on_ready():
     await bot.tree.sync()
     print(f"{bot.user} is online!")
 
-@bot.tree.command(name="change_steam_username", description="Changes your steam username")
+@bot.tree.command(name="change_steam_username", description="Changes your Steam username")
 async def change_steam_username(
     interaction: discord.Interaction, 
     steam_username: str, 
@@ -48,10 +48,10 @@ async def change_steam_username(
     with pool.connection() as conn:
         with conn.cursor() as cur:
             if len(steam_username.strip()) == 0: 
-                await interaction.response.send_message("Your steam username can't be 0 characters long.")
+                await interaction.response.send_message("Your Steam username can't be 0 characters long.", ephemeral=True)
                 return
             if len(steam_username.strip) > 32:
-                await interaction.response.send_message("Your steam username can't be longer than 32 characters.")
+                await interaction.response.send_message("Your Steam username can't be longer than 32 characters.", ephemeral=True)
                 return
 
             error = Queries.setInPlayers(cur, discordID, "username_steam", steam_username)
@@ -68,7 +68,7 @@ async def change_steam_username(
                 await interaction.response.send_message("The parameter username_steam has not been found as a column.")
                 return
             
-            await interaction.response.send_message(f"steam username was updated to {steam_username}.",ephemeral=True)
+            await interaction.response.send_message(f"Steam username was updated to {steam_username}.",ephemeral=True)
 
 
 @bot.tree.command(name="change_substitute", description="Allows you either enlist or unlist as a substitute")
@@ -108,7 +108,7 @@ async def sign_out(
             canSignOut, error = Queries.checkIfPlayerHasValidValue(cur, discordID, "friend_code", None)
             if not canSignOut: 
                 await interaction.response.send_message("You can't sign out if you have a you have a frindship or a friendship request. " \
-                                                        "If you want to sign out, you have to cancel the other friendship (request).")
+                                                        "If you want to sign out, you have to cancel the other friendship (request).", ephemeral=True)
                 return
 
             cur.execute(
@@ -188,7 +188,7 @@ async def on_member_remove(member : discord.Member):
                     # user already left the chat because he's not in the server
                     # await thread.remove_user(interaction.user)
 
-                    await thread.send(f"{member.display_name} left server and therefore the friendship. You are now currently in no friendship.")
+                    await thread.send(f"{member.display_name} left server and therefore the friendship. You are now currently in no friendship. Please leave the thread manually.")
             
             cur.execute(
                 """--sql
@@ -229,9 +229,9 @@ async def leave_friendship(
 
             if (amountOfPlayers == 2):
                 await thread.remove_user(interaction.user)
-                await thread.send(f"{interaction.user.mention} left the friendship. You are now currently in no friendship.")
+                await thread.send(f"{interaction.user.display_name} left the friendship. You are now currently in no friendship. Please leave the thread manually.")
 
-            await interaction.response.send_message("You succesfully left the friendship")
+            await interaction.response.send_message("You succesfully left the friendship", ephemeral=True)
 
 
 @bot.tree.command(name="send_friendship_invite", description="Sends a friendship request to the other player so you")
@@ -240,7 +240,7 @@ async def send_friendship_invite(
     user: discord.Member
 ):
     if (user == interaction.user):
-        await interaction.response.send_message("You can't send a friendship invite to yourself")
+        await interaction.response.send_message("You can't send a friendship invite to yourself", ephemeral=True)
         return
     
     friend_code = uuid.uuid4()
@@ -379,7 +379,10 @@ class acceptFriendshipInviteView(
                 Queries.setInPlayers(cur, 0, "friend_code", self.friend_code, player)
 
         await interaction.channel.edit(name="friend group")
-        await interaction.response.send_message("Friend request accepted.")
+        await interaction.response.defer()
+        await interaction.response.edit_message(view=None)
+
+        await interaction.followup.send("friend request accepted.")
 
     async def _deny(self, interaction: discord.Interaction):
         thread = interaction.channel
@@ -394,13 +397,15 @@ class acceptFriendshipInviteView(
                     await interaction.response.send_message("This request was already handled or no longer exists.", ephemeral=True)
                     return
                 
+            await interaction.response.edit_message(view=None)
+                
             try:
                 receiver = interaction.guild.get_member(self.receiver_id) or \
                            await interaction.guild.fetch_member(self.receiver_id)
                 await thread.remove_user(receiver)
             except discord.NotFound:
                 pass
-            await interaction.response.send_message("Friend request denied. Please leave the thread manually.")
+            await interaction.response.send_message("friend request denied. Please leave the thread manually.")
 
 def buildFriendshipView(sender_id: int, receiver_id: int, friend_code: uuid.UUID) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
