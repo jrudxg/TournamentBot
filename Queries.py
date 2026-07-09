@@ -132,3 +132,32 @@ def removeFriendCodeAndThread(
     if (row is None): return None, None, QueryErrors.UNKNOWN_ERROR
 
     return row["discord_id"], amountOfPlayers, QueryErrors.NO_ERROR
+
+# ignores substitutes
+def getAllPlayerIDs(
+    cur: Cursor[DictRow]
+):
+    cur.execute(
+        """--sql
+        SELECT discord_id FROM players
+        WHERE is_substitute = FALSE
+        """
+    )
+
+    playerIDs: list[int] = [int(row["discord_id"]) for row in cur.fetchall()]
+    
+    return playerIDs
+
+def insertTeam(
+    cur: Cursor[DictRow],
+    teamName: str,
+    teamChannelID : int,
+    playerIDs: tuple[int, int, int, int, int]
+):
+    cur.execute(
+        """--sql
+        INSERT INTO teams (team_name, team_channel_id, player1_id, player2_id, player3_id, player4_id, player5_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        (teamName, teamChannelID, *playerIDs)
+    )

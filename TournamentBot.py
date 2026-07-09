@@ -1,4 +1,3 @@
-import os
 import discord
 import psycopg
 from psycopg_pool import ConnectionPool
@@ -9,6 +8,9 @@ from dotenv import load_dotenv
 import textwrap
 import uuid
 import re
+import os
+import random
+
 
 import Queries
 from Queries import QueryErrors
@@ -50,7 +52,7 @@ async def change_steam_username(
             if len(steam_username.strip()) == 0: 
                 await interaction.response.send_message("Your Steam username can't be 0 characters long.", ephemeral=True)
                 return
-            if len(steam_username.strip) > 32:
+            if len(steam_username.strip()) > 32:
                 await interaction.response.send_message("Your Steam username can't be longer than 32 characters.", ephemeral=True)
                 return
 
@@ -177,8 +179,14 @@ async def on_member_remove(member : discord.Member):
                 if (discordThreadID == None):
                     return
                 
-                thread = bot.get_channel(discordThreadID)
-                if type(thread) is not discord.Thread:
+                try:
+                    thread = await bot.fetch_channel(discordThreadID)
+                except discord.NotFound:
+                    thread = None
+                except discord.Forbidden:
+                    thread = None  # oder loggen
+
+                if not isinstance(thread, discord.Thread):
                     return
 
                 if (amountOfPlayers == 1):
@@ -219,8 +227,14 @@ async def leave_friendship(
                 await interaction.response.send_message("An unknown error has been found.")
                 return
             
-            thread = bot.get_channel(discordThreadID)
-            if type(thread) is not discord.Thread:
+            try:
+                thread = await bot.fetch_channel(discordThreadID)
+            except discord.NotFound:
+                thread = None
+            except discord.Forbidden:
+                thread = None
+
+            if not isinstance(thread, discord.Thread):
                 await interaction.response.send_message("You are in no friendship.", ephemeral=True)
                 return
 
@@ -255,7 +269,7 @@ async def send_friendship_invite(
 
     # discord doesn't allow 0 as the channel id
     if (friendChannel is None):
-        await interaction.response.send_message(f"{interaction.guild.owner.mention} make sure that there's a \"friends\" channel in your discord. Else the bot can't create threads for the friends function")
+        await interaction.response.send_message(f"<@{interaction.guild.owner_id} make sure that there's a \"friends\" channel in your discord. Else the bot can't create threads for the friends function")
         return
 
     with pool.connection() as conn:
@@ -411,105 +425,76 @@ def buildFriendshipView(sender_id: int, receiver_id: int, friend_code: uuid.UUID
     view.add_item(acceptFriendshipInviteView("deny", sender_id, receiver_id, friend_code))
     return view
 
+async def start_creating_teams(
+    interaction: discord.Interaction
+):
+    await interaction.response.defer()
+
+    teamsChannel : discord.TextChannel = None
+
+    channels = interaction.guild.text_channels
+    for channel in channels:
+        if channel.name == "teams":
+            teamsChannel = channel
+            break
+
+    # discord doesn't allow 0 as the channel id
+    if (teamsChannel is None):
+        await interaction.followup.send(f"<@{interaction.guild.owner_id}> make sure that there's a \"teams\" channel in your discord. Else the bot can't create threads for the friends function")
+        return
+
+    amountOfMissingPlayers = 0
+    amountOfTeams = 0
+    teamSize = 5
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            playerIDs = Queries.getAllPlayerIDs(cur)
+            random.shuffle(playerIDs)
+
+            amountOfPlayersWithoutFullTeam = len(playerIDs) % teamSize
+
+            amountOfMissingPlayers = (teamSize - amountOfPlayersWithoutFullTeam) % teamSize
+            amountOfTeams = (len(playerIDs) + amountOfMissingPlayers) // teamSize
+
+            playerIDs.extend([0] * amountOfMissingPlayers)
+
+            if (amountOfMissingPlayers != 0):
+                await teamsChannel.send(f"There are {amountOfMissingPlayers} missing players that need to be filled in team{amountOfTeams}")
+
+            for teamNumber in range(amountOfTeams):
+                teamName = f"team{teamNumber+1}"
+
+                players = tuple(playerIDs[teamNumber*teamSize : (teamNumber+1) * teamSize])
+
+                role = await interaction.guild.create_role(name=teamName,mentionable=True)
+                thread = await teamsChannel.create_thread(
+                    name=teamName,
+                    type                    = discord.ChannelType.private_thread,
+                    reason                  = "team creation",
+                    invitable               = False, 
+                    auto_archive_duration   = 10080
+                )
+                
+                for player in players:
+                    if (player == 0): continue
+                    try:
+                        member = await interaction.guild.fetch_member(player)
+                    except discord.NotFound:
+                        await teamsChannel.send(f"<@{player}> is not in the server anymore.")
+                        continue
+
+                    await member.add_roles(role)
+                    await thread.add_user(member)
+
+                await thread.send(f"Welcome {teamName}")
+
+                Queries.insertTeam(cur, teamName, thread.id, players)
+
+    await interaction.followup.send(f"All {amountOfTeams} teams have been created.", ephemeral=True)
+
+                
+
+        
+
 bot.run(TOKEN)
-
-"""
-class acceptFriendshipInviteView(discord.ui.View):
-    def __init__(
-        self, 
-        sender_id: int, 
-        receiver_id: int,
-        thread_id : int,
-        friend_code : uuid.UUID
-    ):
-        super().__init__(timeout=None)
-        self.sender_id = sender_id
-        self.receiver_id = receiver_id
-        self.friend_code = friend_code
-        self.interacted = False
-    
-    # the thread, this view is in, will be automatically be deleted if the sender will cancel the request
-    @discord.ui.button(
-        label="accept request",
-        style=discord.ButtonStyle.success
-    )
-    async def accept(
-        self, 
-        interaction: discord.Interaction, 
-        button: discord.ui.Button
-    ):
-        if (interaction.user.id != self.receiver_id):
-            await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.", ephemeral=True)
-            return
-
-        if self.interacted:
-            await interaction.response.send_message("You already accepted the friend request.", ephemeral=True)
-            return
-        
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                player, error = Queries.selectPlayerWithDiscordID(cur, self.receiver_id)
-
-                if (error == QueryErrors.PLAYER_NOT_FOUND):
-                    await interaction.response.send_message("You are not signed in.", ephemeral=True)
-                    return
-                
-                if (player is None):
-                    await interaction.response.send_message("You are not signed in.", ephemeral=True)
-                    return
-                
-                if "is_substitute" not in player:
-                    await interaction.response.send_message("The parameter is_substitute has not been found as a column.")
-                    return
-                
-                if player["is_substitute"]:
-                    await interaction.response.send_message("You can't create a friend request if you are part of the substitute team.", ephemeral=True)
-                    return
-                
-                if "friend_code" not in player:
-                    await interaction.response.send_message("The parameter friend_code has not been found as a column.")
-                    return
-            
-                if player["friend_code"] is not None:
-                    await interaction.response.send_message(" You already sent out a friendship request or are part of a friend group. " \
-                    "If you want to send out this request, you have to cancel the other friendship (request)", ephemeral=True)
-                    return
-                
-                Queries.setInPlayers(cur, 0, "friend_code", self.friend_code, player)
-
-        self.interacted = True
-        await interaction.channel.edit(name="friend group")
-        await interaction.response.send_message(
-            "Friend request accepted."
-        )
-
-
-    @discord.ui.button(
-        label="deny request",
-        style=discord.ButtonStyle.danger
-    )
-    async def deny(self, interaction: discord.Interaction, button: discord.ui.Button):
-
-        if (interaction.user.id != self.receiver_id):
-            await interaction.response.send_message("You don't have the rights to interact with these buttons. These buttons are for the player, you invited.", ephemeral=True)
-            return
-
-        if self.interacted:
-            await interaction.response.send_message("You have to use the command /leave_friendship to leave this friendship.", ephemeral=True)
-            return
-        
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                discordThreadID, amountOfPlayers, error = Queries.removeFriendCodeAndThread(cur, self.friend_code)
-                if discordThreadID is None: 
-                    await interaction.response.send_message(f"An unexpected error occured ({error}).")
-                    return
-        
-        try:
-            receiver = interaction.guild.get_member(self.receiver_id) or await interaction.guild.fetch_member(self.receiver_id)
-            await interaction.channel.remove_user(receiver)
-        except discord.NotFound:
-            pass
-        await interaction.response.send_message("Friend request denied. Please leave the thread manually.")
-        self.interacted = True
-"""
