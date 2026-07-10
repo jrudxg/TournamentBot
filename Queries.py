@@ -1,3 +1,4 @@
+# Queries.py
 from psycopg import Cursor, sql
 from psycopg.rows import DictRow
 from enum import Enum, auto
@@ -152,12 +153,24 @@ def insertTeam(
     cur: Cursor[DictRow],
     teamName: str,
     teamChannelID : int,
+    teamRoleID : int,
     playerIDs: tuple[int, int, int, int, int]
 ):
     cur.execute(
         """--sql
-        INSERT INTO teams (team_name, team_channel_id, player1_id, player2_id, player3_id, player4_id, player5_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO teams (team_name, team_channel_id, team_role_id, player1_id, player2_id, player3_id, player4_id, player5_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (teamName, teamChannelID, *playerIDs)
+        (teamName, teamChannelID, teamRoleID, *playerIDs)
     )
+
+def checkIfTeamsExist(
+    cur: Cursor[DictRow]
+):
+    cur.execute(
+        """--sql
+        SELECT team_id FROM teams
+        LIMIT 1
+        """
+    )
+    return cur.rowcount != 0
