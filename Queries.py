@@ -1,94 +1,132 @@
-# Queries.py
-from psycopg import Cursor, sql
-from psycopg.rows import DictRow
-from enum import Enum, auto
+# queries.py
+"""Database access helpers for the tournament bot.
+
+All functions take an already-open `psycopg` cursor (row factory:
+`dict_row`) and translate raw SQL results into `QueryErrors` outcomes
+that the bot layer can react to.
+"""
+
 from uuid import UUID
 
-class QueryErrors(Enum):
-    NO_ERROR = auto()
-    PLAYER_NOT_FOUND = auto()
-    PARAMETER_NOT_FOUND = auto()
-    FRIENDCODE_NOT_FOUND = auto()
-    UNKNOWN_ERROR = auto()
+from psycopg import Cursor, sql
+from psycopg.rows import DictRow
 
-# set discordID to 0 if player is not None
-def setInPlayers(
-    cur : Cursor[DictRow], 
-    discordID : int, 
-    parameter : str, 
-    value, 
-    player : DictRow | None = None 
-):
-    if player is None:
-        player, error = selectPlayerWithDiscordID(cur, discordID)
-        if (error != QueryErrors.NO_ERROR): return error
-        if player is None: 
-            print("There was an error where player was none in setInPlayers but the error was QueryErrors.NO_ERROR!")
-            return QueryErrors.UNKNOWN_ERROR
-        
-    if parameter not in player:
-        return  QueryErrors.PARAMETER_NOT_FOUND
-    
-    cur.execute(
-        sql.SQL("""--sql
-        UPDATE players
-        SET {column} = %s
-        WHERE discord_id = %s
-        """).format(column=sql.Identifier(parameter)),
-        (value, player["discord_id"])
-    )
-
-    return QueryErrors.NO_ERROR
-
-# set discordID to 0 if player is not None
-def checkIfPlayerHasValidValue(
-    cur : Cursor[DictRow],
-    discordID : int,
-    parameter : str,
-    value,
-    player : DictRow | None = None 
-): 
-    if player is None:
-        player, error = selectPlayerWithDiscordID(cur, discordID)
-        if (error != QueryErrors.NO_ERROR): return False, error
-        if player is None: 
-            print("There was an error where player was none in setInPlayers but the error was QueryErrors.NO_ERROR!")
-            return False, QueryErrors.UNKNOWN_ERROR
-    
-    if parameter not in player: return False, QueryErrors.PARAMETER_NOT_FOUND
-
-    if player[parameter] == value:
-        return True, QueryErrors.NO_ERROR
-    else:
-        return False, QueryErrors.NO_ERROR
+from enums import QueryErrors
 
 
+# ============================================================
+# Player queries
+# ============================================================
 
-def selectPlayerWithDiscordID(
-    cur : Cursor[DictRow], 
-    discordID : int
-): 
+def select_player_with_discord_id(
+    cur: Cursor[DictRow],
+    discord_id: int,
+) -> tuple[DictRow | None, QueryErrors]:
+    """Fetch a single player row by their Discord ID."""
     cur.execute(
         """--sql
         SELECT * FROM players
         WHERE discord_id = %s
         """,
-        (discordID,)
+        (discord_id,),
     )
 
     row = cur.fetchone()
-
     if row is None:
         return None, QueryErrors.PLAYER_NOT_FOUND
-    
+
     return row, QueryErrors.NO_ERROR
 
-# make sure that the discordThreadID actually exists because only the friendCode is tracked
-def insertFriendThread(
+
+def set_in_players(
     cur: Cursor[DictRow],
-    discordThreadID: int,
-    friendCode: UUID
-):
+    discord_id: int,
+    parameter: str,
+    value,
+    player: DictRow | None = None,
+) -> QueryErrors:
+    """Set a single column for a player.
+
+    Pass `discord_id=0` if `player` is already provided.
+    """
+    if player is None:
+        player, error = select_player_with_discord_id(cur, discord_id)
+        if error != QueryErrors.NO_ERROR:
+            return error
+        if player is None:
+            print(
+                "Unexpected state in set_in_players: player is None "
+                "but error was QueryErrors.NO_ERROR!"
+            )
+            return QueryErrors.UNKNOWN_ERROR
+
+    if parameter not in player:
+        return QueryErrors.PARAMETER_NOT_FOUND
+
+    cur.execute(
+        sql.SQL(
+            """--sql
+            UPDATE players
+            SET {column} = %s
+            WHERE discord_id = %s
+            """
+        ).format(column=sql.Identifier(parameter)),
+        (value, player["discord_id"]),
+    )
+
+    return QueryErrors.NO_ERROR
+
+
+def check_if_player_has_valid_value(
+    cur: Cursor[DictRow],
+    discord_id: int,
+    parameter: str,
+    value,
+    player: DictRow | None = None,
+) -> tuple[bool, QueryErrors]:
+    """Check whether a player's column currently equals `value`.
+
+    Pass `discord_id=0` if `player` is already provided.
+    """
+    if player is None:
+        player, error = select_player_with_discord_id(cur, discord_id)
+        if error != QueryErrors.NO_ERROR:
+            return False, error
+        if player is None:
+            print(
+                "Unexpected state in check_if_player_has_valid_value: "
+                "player is None but error was QueryErrors.NO_ERROR!"
+            )
+            return False, QueryErrors.UNKNOWN_ERROR
+
+    if parameter not in player:
+        return False, QueryErrors.PARAMETER_NOT_FOUND
+
+    return player[parameter] == value, QueryErrors.NO_ERROR
+
+
+def get_all_player_ids(cur: Cursor[DictRow]) -> list[int]:
+    """Return the Discord IDs of all non-substitute players."""
+    cur.execute(
+        """--sql
+        SELECT discord_id FROM players
+        WHERE is_substitute = FALSE
+        """
+    )
+
+    return [int(row["discord_id"]) for row in cur.fetchall()]
+
+
+# ============================================================
+# Friendship queries
+# ============================================================
+
+def insert_friend_thread(
+    cur: Cursor[DictRow],
+    discord_thread_id: int,
+    friend_code: UUID,
+) -> QueryErrors:
+    """Link a Discord thread to a friend code, if that code exists."""
     cur.execute(
         """--sql
         INSERT INTO friend_threads (discord_id, friend_code)
@@ -98,75 +136,57 @@ def insertFriendThread(
             WHERE friend_code = %s
         )
         """,
-        (discordThreadID, friendCode, friendCode)
+        (discord_thread_id, friend_code, friend_code),
     )
+
     if cur.rowcount == 0:
         return QueryErrors.FRIENDCODE_NOT_FOUND
     return QueryErrors.NO_ERROR
-    
-def removeFriendCodeAndThread(
+
+
+def remove_friend_code_and_thread(
     cur: Cursor[DictRow],
-    friend_code : UUID
-):
+    friend_code: UUID,
+) -> tuple[int | None, int | None, QueryErrors]:
+    """Clear a friend code from all players and delete its thread entry.
+
+    Returns (discord_thread_id, amount_of_players, error).
+    """
     cur.execute(
         """--sql
         UPDATE players
         SET friend_code = NULL
         WHERE friend_code = %s
         """,
-        (friend_code,)
+        (friend_code,),
     )
-    amountOfPlayers = cur.rowcount
+    amount_of_players = cur.rowcount
 
-    if (amountOfPlayers == 0):
+    if amount_of_players == 0:
         return None, None, QueryErrors.FRIENDCODE_NOT_FOUND
+
     cur.execute(
         """--sql
         DELETE FROM friend_threads
         WHERE friend_code = %s
         RETURNING discord_id
         """,
-        (friend_code,)
+        (friend_code,),
     )
     row = cur.fetchone()
 
-    if (row is None): return None, None, QueryErrors.UNKNOWN_ERROR
+    if row is None:
+        return None, None, QueryErrors.UNKNOWN_ERROR
 
-    return row["discord_id"], amountOfPlayers, QueryErrors.NO_ERROR
+    return row["discord_id"], amount_of_players, QueryErrors.NO_ERROR
 
-# ignores substitutes
-def getAllPlayerIDs(
-    cur: Cursor[DictRow]
-):
-    cur.execute(
-        """--sql
-        SELECT discord_id FROM players
-        WHERE is_substitute = FALSE
-        """
-    )
 
-    playerIDs: list[int] = [int(row["discord_id"]) for row in cur.fetchall()]
-    
-    return playerIDs
+# ============================================================
+# Team queries
+# ============================================================
 
-def insertTeam(
-    cur: Cursor[DictRow],
-    teamName: str,
-    teamChannelID : int,
-    teamRoleID : int,
-    playerIDs: tuple[int, int, int, int, int]
-):
-    cur.execute(
-        """--sql
-        INSERT INTO teams (team_name, team_channel_id, team_role_id, player1_id, player2_id, player3_id, player4_id, player5_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """,
-        (teamName, teamChannelID, teamRoleID, *playerIDs)
-    )
-
-def checkIfTeamsExist(
-    cur: Cursor[DictRow]
-):
+def check_if_teams_exist(cur: Cursor[DictRow]) -> bool:
+    """Return True if at least one team has been created."""
     cur.execute(
         """--sql
         SELECT team_id FROM teams
@@ -174,3 +194,23 @@ def checkIfTeamsExist(
         """
     )
     return cur.rowcount != 0
+
+
+def insert_team(
+    cur: Cursor[DictRow],
+    team_name: str,
+    team_channel_id: int,
+    team_role_id: int,
+    player_ids: tuple[int, int, int, int, int],
+) -> None:
+    """Insert a newly created team."""
+    cur.execute(
+        """--sql
+        INSERT INTO teams (
+            team_name, team_channel_id, team_role_id,
+            player1_id, player2_id, player3_id, player4_id, player5_id
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (team_name, team_channel_id, team_role_id, *player_ids),
+    )
