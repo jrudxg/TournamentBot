@@ -105,12 +105,27 @@ def check_if_player_has_valid_value(
     return player[parameter] == value, QueryErrors.NO_ERROR
 
 
-def get_all_player_ids(cur: Cursor[DictRow]) -> list[int]:
+def get_all_player_ids(
+    cur: Cursor[DictRow],
+    filterFriendsOut: bool = False
+) -> list[int]:
     """Return the Discord IDs of all non-substitute players."""
+
+    filterExtension = "" if not filterFriendsOut else \
+    """--sql
+    AND friend_code = NULL
+    """
+
+    filterText = \
+    f"""--sql
+    WHERE is_substitute = FALSE
+    {filterExtension}
+    """
+
     cur.execute(
-        """--sql
+        f"""--sql
         SELECT discord_id FROM players
-        WHERE is_substitute = FALSE
+        {filterText}
         """
     )
 

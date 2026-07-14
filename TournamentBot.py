@@ -17,8 +17,12 @@ from dotenv import load_dotenv
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
 
+import json
+import asyncio
 import queries
+from datetime import datetime, timezone, timedelta
 from enums import CreateTeamsOutput, QueryErrors, RemoveFromTeamOutput
+from collections import defaultdict
 from keep_alive import keep_alive
 
 # ============================================================
@@ -28,6 +32,9 @@ from keep_alive import keep_alive
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
+CAPTAIN_ROLE_ID = 1525497948396585090
+SUBSTITUTE_ROLE_ID = 1525494403291025519
+ALLOWED_GUILD_ID = 1519693560268455990
 TEAM_SIZE = 5
 EMPTY_SLOT_ID = 0
 FRIEND_CHANNEL_NAME = "friends"
@@ -55,8 +62,25 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix=None, intents=intents)
 
+async def captain_vote_run_at(target_time: datetime):
+    now = datetime.now(timezone.utc)
+    delay = (target_time - now).total_seconds()
+
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+    await start_captain_vote_everywhere()
+
+async def team_creation_run_at(target_time: datetime):
+    now = datetime.now(timezone.utc)
+    delay = (target_time - now).total_seconds()
+
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+    await start_creating_teams()
 
 # ============================================================
 # Bot Events
@@ -67,6 +91,15 @@ async def on_ready():
     bot.add_dynamic_items(AcceptFriendshipInviteView)
     await bot.tree.sync()
     print(f"{bot.user} is online!")
+
+    # needs to be changed
+    teamTime= datetime(2026, 12, 31, 0, tzinfo=timezone.utc)
+    captainTime = datetime(2027, 1, 2, 0, tzinfo=timezone.utc)
+    asyncio.create_task(team_creation_run_at(teamTime))
+    asyncio.create_task(captain_vote_run_at(captainTime))
+
+    load_captain_polls()
+
 
 
 @bot.event
@@ -121,7 +154,11 @@ async def on_member_remove(member: discord.Member):
 # Player Sign-up Commands
 # ============================================================
 
-@bot.tree.command(name="sign_in", description="Signs you into the tournament as a player (not watcher)")
+@bot.tree.command(
+    name="sign_in", 
+    description="Signs you into the tournament as a player (not watcher)",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
 async def sign_in(
     interaction: discord.Interaction,
     steam_username: str,
@@ -180,11 +217,16 @@ async def sign_in(
             if cur.rowcount == 0:
                 await interaction.response.send_message("You are already signed up.", ephemeral=True)
                 return
+    if be_substitute:
+        await interaction.user.add_roles(await interaction.guild.fetch_role(SUBSTITUTE_ROLE_ID))
+    await interaction.response.send_message("You are now signed in.", ephemeral=True)
 
-            await interaction.response.send_message("You are now signed in.", ephemeral=True)
 
-
-@bot.tree.command(name="sign_out", description="Signs you out of the tournament as a player (not watcher)")
+@bot.tree.command(
+    name="sign_out", 
+    description="Signs you out of the tournament as a player (not watcher)",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
 async def sign_out(interaction: discord.Interaction):
     """Sign-out requirements:
     - no friendship
@@ -230,11 +272,16 @@ async def sign_out(interaction: discord.Interaction):
                     "You are currently not signed in.", ephemeral=True
                 )
                 return
+            
+    await interaction.user.remove_roles(await interaction.guild.fetch_role(SUBSTITUTE_ROLE_ID))
+    await interaction.response.send_message("You are now signed out.", ephemeral=True)
 
-            await interaction.response.send_message("You are now signed out.", ephemeral=True)
 
-
-@bot.tree.command(name="change_steam_username", description="Changes your Steam username")
+@bot.tree.command(
+    name="change_steam_username", 
+    description="Changes your Steam username",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)    
+)
 async def change_steam_username(interaction: discord.Interaction, steam_username: str):
     """Requirements:
     - Steam username between 1 and 32 characters
@@ -270,12 +317,14 @@ async def change_steam_username(interaction: discord.Interaction, steam_username
                 )
                 return
 
-            await interaction.response.send_message(
-                f"Steam username was updated to {steam_username}.", ephemeral=True
-            )
+    await interaction.response.send_message(f"Steam username was updated to {steam_username}.", ephemeral=True)
 
 
-@bot.tree.command(name="change_substitute", description="Allows you to either enlist or unlist as a substitute")
+@bot.tree.command(
+    name="change_substitute", 
+    description="Allows you to either enlist or unlist as a substitute",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
 async def change_substitute(interaction: discord.Interaction, be_substitute: bool):
     """Requirements:
     - teams must not have been created yet
@@ -321,12 +370,17 @@ async def change_substitute(interaction: discord.Interaction, be_substitute: boo
                 )
                 return
 
-            message = (
-                "You are now part of the substitute team."
-                if be_substitute
-                else "You are no longer part of the substitute team."
-            )
-            await interaction.response.send_message(message, ephemeral=True)
+    message = (
+        "You are now part of the substitute team."
+        if be_substitute
+        else "You are no longer part of the substitute team."
+    )
+    await interaction.response.send_message(message, ephemeral=True)
+
+    substituteRole = await interaction.guild.fetch_role(SUBSTITUTE_ROLE_ID)
+
+    if be_substitute: await interaction.user.add_roles(substituteRole)
+    else: await interaction.user.remove_roles(substituteRole)
 
 
 # ============================================================
@@ -336,6 +390,7 @@ async def change_substitute(interaction: discord.Interaction, be_substitute: boo
 @bot.tree.command(
     name="send_friendship_invite",
     description="Sends a friendship request to the other player so you",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
 async def send_friendship_invite(interaction: discord.Interaction, user: discord.Member):
     if user == interaction.user:
@@ -450,14 +505,13 @@ async def send_friendship_invite(interaction: discord.Interaction, user: discord
         view=build_friendship_view(interaction.user.id, user.id, friend_code),
     )
 
-    await interaction.response.send_message(
-        f"Friend request has been created. Look at {thread.mention}", ephemeral=True
-    )
+    await interaction.response.send_message(f"Friend request has been created. Look at {thread.mention}", ephemeral=True)
 
 
 @bot.tree.command(
     name="leave_friendship",
     description="Leaves the current friendship or cancels the current request",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
 async def leave_friendship(interaction: discord.Interaction):
     """Requirements:
@@ -500,30 +554,32 @@ async def leave_friendship(interaction: discord.Interaction):
             elif amount_of_players == 2:
                 await thread.remove_user(interaction.user)
                 await thread.send(
-                    f"{interaction.user.display_name} left the friendship. You are "
-                    "now in no friendship. Please leave the thread manually."
+                    f"{interaction.user.display_name} left the friendship. You are now in no friendship. Please leave the thread manually."
                 )
 
-            await interaction.response.send_message(
-                "You successfully left the friendship", ephemeral=True
-            )
+    await interaction.response.send_message("You successfully left the friendship", ephemeral=True)
 
 
 # ============================================================
-# Team Management Commands (Admin)
+# Team Management Commands
 # ============================================================
 
 @app_commands.checks.has_permissions(administrator=True)
-@bot.tree.command(name="start_create_teams", description="Creates the teams for the tournament")
+@bot.tree.command(
+    name="start_create_teams", 
+    description="Creates the teams for the tournament",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
 async def start_create_teams(interaction: discord.Interaction):
     await interaction.response.defer()
-    _, message_text = await start_creating_teams(interaction.guild)
+    _, message_text = await start_creating_teams()
     await interaction.followup.send(message_text)
 
 
 @bot.tree.command(
     name="leave_team",
     description="Leaves your current team. ONLY THE MODERATORS CAN ASSIGN YOU BACK TO THE TEAM.",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
 async def leave_team(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -540,10 +596,146 @@ async def leave_team(interaction: discord.Interaction):
             else:
                 await interaction.followup.send("An unknown error has been found.")
 
+@app_commands.checks.has_permissions(administrator=True)
+@bot.tree.command(
+    name="set_captain",
+    description="Sets the captain in a team",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+async def set_captain(
+    interaction: discord.Interaction,
+    team_thread: discord.Thread,
+    new_captain: discord.Member
+):
+    captainRole = await interaction.guild.fetch_role(CAPTAIN_ROLE_ID)
+
+
+    with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                """--sql
+                SELECT * FROM teams
+                WHERE team_channel_id = %s
+                """,
+                (team_thread.id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                await interaction.response.send_message("No team with this thread exists", ephemeral=True)
+                return
+
+            if (row["captain_id"]) is not None:
+                try:
+                    (await interaction.guild.fetch_member(row["captain_id"])).remove_roles(captainRole)
+                except:
+                    pass
+
+            cur.execute(
+                """--sql
+                UPDATE teams
+                SET captain_id = %s
+                WHERE team_channel_id = %s
+                """,
+                (new_captain.id, team_thread.id)
+            )
+
+            team_thread.send(f"<@&{row['team_role_id']}> {new_captain.mention} is now your new team captain")
+            
+    new_captain.add_roles(captainRole)
+    interaction.response.send_message("New captain has been set", ephemeral=True)
 
 @app_commands.checks.has_permissions(administrator=True)
-@bot.tree.command(name="remove_from_team", description="Removes a player from a team.")
-async def remove_from_team_command(interaction: discord.Interaction, user: discord.User):
+@bot.tree.command(
+    name="set_teamname_from_team",
+    description="Sets the teamname",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+async def set_teamname_from_team(
+    interaction: discord.Interaction,
+    team_thread: discord.Thread,
+    new_team_name: str
+):
+    if len(new_team_name) < 1 or len(new_team_name) > 32:
+        await interaction.response.send_message("The team name is isn't allowed. Please make sure that the team name is between 1 and 32 characters long.", ephemeral=True)
+        return
+
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""--sql
+                UPDATE teams
+                SET team_name = %s
+                WHERE team_channel_id = %s
+                """,
+                (new_team_name, interaction.id)
+            )
+            if cur.rowcount == 0:
+                await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
+            await team_thread.edit(name=new_team_name)
+
+            cur.execute(
+                f"""--sql
+                SELECT team_role_id FROM teams
+                WHERE team_channel_id = %s
+                """,
+                (team_thread.id,)
+            )
+            row = cur.fetchone()
+
+            role = await interaction.guild.fetch_role(row["team_role_id"])
+            role.edit(name=new_team_name)
+    
+@app_commands.checks.has_role(CAPTAIN_ROLE_ID)
+@bot.tree.command(
+    name="set_teamname",
+    description="Sets the teamname",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+async def set_teamname(
+    interaction: discord.Interaction,
+    new_team_name: str
+):
+    if len(new_team_name) < 1 or len(new_team_name) > 32:
+        await interaction.response.send_message("The team name is isn't allowed. Please make sure that the team name is between 1 and 32 characters long.", ephemeral=True)
+        return
+
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""--sql
+                UPDATE teams
+                SET team_name = %s
+                WHERE captain_id = %s
+                """,
+                (new_team_name, interaction.user.id)
+            )
+            if cur.rowcount == 0:
+                await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
+
+            cur.execute(
+                f"""--sql
+                SELECT team_role_id, team_thread FROM teams
+                WHERE captain_id = %s
+                """,
+                (interaction.user.id,)
+            )
+            row = cur.fetchone()
+
+            thread = await interaction.guild.fetch_channel(row["team_channel_id"])
+            await thread.edit(name=new_team_name)
+
+            role = await interaction.guild.fetch_role(row["team_role_id"])
+            await role.edit(name=new_team_name)
+
+@app_commands.checks.has_permissions(administrator=True)
+@bot.tree.command(
+    name="remove_user_from_team", 
+    description="Removes a player from a team.",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+async def remove_user_from_team(interaction: discord.Interaction, user: discord.User):
     await interaction.response.defer()
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -562,7 +754,11 @@ async def remove_from_team_command(interaction: discord.Interaction, user: disco
 
 
 @app_commands.checks.has_permissions(administrator=True)
-@bot.tree.command(name="fill_team_with_user", description="Fills a team with a user")
+@bot.tree.command(
+    name="fill_team_with_user", 
+    description="Fills a team with a user",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
 async def fill_team_with_user(
     interaction: discord.Interaction,
     user: discord.User,
@@ -601,7 +797,7 @@ async def fill_team_with_user(
             )
             row = cur.fetchone()
             if row is None:
-                await interaction.followup.send("Team with this thread does not exist")
+                await interaction.followup.send("No team with this thread exists", ephemeral=True)
                 return
 
             for column in TEAM_PLAYER_COLUMNS:
@@ -624,8 +820,92 @@ async def fill_team_with_user(
                 )
                 return
 
-            await interaction.followup.send("The team is already full", ephemeral=True)
+    await interaction.followup.send("The team is already full", ephemeral=True)
+        
+@app_commands.checks.has_permissions(administrator=True)
+@bot.tree.command(
+    name="start_captain_vote", 
+    description="Starts a captain vote in a team manually.",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+async def start_captain_vote(
+    interaction: discord.Interaction,
+    team_thread: discord.Thread
+):
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""--sql
+                UPDATE teams
+                SET captain_id = NULL
+                WHERE team_channel_id = %s
+                """,
+                (team_thread.id,)
+            )
+            if cur.rowcount == 0:
+                await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
 
+    await interaction.response.send_message("The poll will now be created")
+    await start_captain_vote(team_thread.id)
+
+@app_commands.checks.has_role(CAPTAIN_ROLE_ID)
+@bot.tree.command(
+    name="start_team_captain_vote", 
+    description="Starts a captain vote in a team manually.",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+async def start_captain_vote(
+    interaction: discord.Interaction,
+):
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""--sql
+                UPDATE teams
+                SET captain_id = NULL
+                WHERE captain_id = %s
+                """,
+                (interaction.id,)
+            )
+            if cur.rowcount == 0:
+                await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
+
+            cur.execute(
+                f"""--sql
+                SELECT team_channel_id FROM teams
+                WHERE captain_id = %s
+                """,
+                (interaction.id,)
+            )
+
+            row = cur.fetchone()
+
+    await interaction.response.send_message("The poll will now be created")
+    await start_captain_vote(row["team_channel_id"])
+
+
+async def start_captain_vote_everywhere():
+    guild = bot.fetch_guild(ALLOWED_GUILD_ID)
+    
+    all_threads : discord.Thread
+
+    for channel in bot.get_all_channels():
+        if channel == "friends":
+            all_threads = channel.threads
+            break
+    else: return
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""--sql
+                UPDATE teams
+                SET captain_id = NULL
+                """
+            )
+
+    for thread in all_threads:
+        await start_captain_vote(thread.id)
 
 # ============================================================
 # UI Components
@@ -749,10 +1029,14 @@ def build_friendship_view(
 # Helper Functions
 # ============================================================
 
-async def start_creating_teams(guild: discord.Guild) -> tuple[CreateTeamsOutput, str]:
+async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
     """Randomly distribute all signed-up players into teams of
     `TEAM_SIZE`, creating a role and a private thread per team.
     """
+
+    guild = await bot.fetch_guild(ALLOWED_GUILD_ID)
+
+
     teams_channel = discord.utils.get(guild.text_channels, name=TEAM_CHANNEL_NAME)
 
     if teams_channel is None:
@@ -765,20 +1049,60 @@ async def start_creating_teams(guild: discord.Guild) -> tuple[CreateTeamsOutput,
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            player_ids = queries.get_all_player_ids(cur)
-            random.shuffle(player_ids)
+            player_ids_singels = queries.get_all_player_ids(cur, filterFriendsOut=True)
+            
 
-            players_without_full_team = len(player_ids) % TEAM_SIZE
-            missing_players = (TEAM_SIZE - players_without_full_team) % TEAM_SIZE
-            amount_of_teams = (len(player_ids) + missing_players) // TEAM_SIZE
+            cur.execute(
+                """--sql
+                SELECT discord_id, friend_code FROM teams
+                WHERE is_substitute = FALSE
+                AND NOT friend_code = NULL 
+                """
+            )
+            rows = cur.fetchall()
 
-            player_ids.extend([EMPTY_SLOT_ID] * missing_players)
+            player_pairs = defaultdict(list)
 
-            if missing_players != 0:
-                await teams_channel.send(
-                    f"There are {missing_players} missing players that need to be "
-                    f"filled in team{amount_of_teams}"
-                )
+            for row in rows:
+                player_pairs[row["friend_code"]].append(row["discord_id"])
+
+            player_pairs = [
+                pair_player__ids
+                for pair_player__ids in player_pairs.values()
+                if len(pair_player__ids) == 2
+            ]
+
+            random.shuffle(player_pairs)
+            random.shuffle(player_ids_singels)
+
+            player_ids = []
+
+            pair_index = 0
+            single_index = 0
+
+            amount_of_teams = 0
+
+            while pair_index < len(player_pairs) or single_index < len(player_ids_singels):
+
+                group = []
+                
+                if pair_index < len(player_pairs):
+                    group.extend(player_pairs[pair_index])
+                    pair_index += 1
+
+                while len(group) < 5 and single_index < len(player_ids_singels):
+                    group.append(player_ids_singels[single_index])
+                    single_index += 1
+
+                if len(group) == 0:
+                    break
+
+                group.extend([EMPTY_SLOT_ID] * (TEAM_SIZE - len(group))) 
+
+                amount_of_teams += 1
+                player_ids.extend(group)
+
+            missing_players = 0
 
             for team_number in range(amount_of_teams):
                 team_name = f"team{team_number + 1}"
@@ -795,15 +1119,18 @@ async def start_creating_teams(guild: discord.Guild) -> tuple[CreateTeamsOutput,
 
                 for i, player_id in enumerate(players):
                     if player_id == EMPTY_SLOT_ID:
+
+                        await teams_channel.send(f"{team_name} needs a new member because the team is not full.")
+
+                        missing_players += 1
                         continue
                     try:
                         member = await guild.fetch_member(player_id)
                     except discord.NotFound:
                         players[i] = EMPTY_SLOT_ID
-                        await teams_channel.send(
-                            f"{team_name.capitalize()} needs a new member because "
-                            f"<@{player_id}> is not in the server anymore."
-                        )
+                        await teams_channel.send(f"{team_name} needs a new member because <@{player_id}> is not in the server anymore.")
+
+                        missing_players += 1
                         continue
 
                     await member.add_roles(role)
@@ -811,6 +1138,12 @@ async def start_creating_teams(guild: discord.Guild) -> tuple[CreateTeamsOutput,
 
                 await thread.send(f"Welcome {team_name}")
                 queries.insert_team(cur, team_name, thread.id, role.id, players)
+
+            if missing_players != 0:
+                        await teams_channel.send(
+                            f"There are {missing_players} missing players that need to be "
+                            f"filled in team{amount_of_teams}"
+                        )
 
     return CreateTeamsOutput.NO_ERROR, f"All {amount_of_teams} teams have been created."
 
@@ -857,10 +1190,14 @@ async def remove_from_team(
         )
 
         await thread.remove_user(await bot.fetch_user(user_id))
-        role = await guild.fetch_role(row["team_role_id"])
+        teamRole = await guild.fetch_role(row["team_role_id"])
+        captainRole = await guild.fetch_role(CAPTAIN_ROLE_ID)
+
         try:
             member = await guild.fetch_member(user_id)
-            await member.remove_roles(role)
+            await member.remove_roles(teamRole)
+            if (captainRole is not None): 
+                await member.remove_roles(captainRole)
         except discord.NotFound:
             pass
 
@@ -873,15 +1210,185 @@ async def remove_from_team(
             SET captain_id = NULL
             WHERE captain_id = %s
             """,
-            (user_id,),
+            (user_id,)
         )
-        await thread.send(f"<@&{row['team_role_id']}> There is currently no captain")
+        await thread.send(f"<@&{row['team_role_id']}> there is currently no captain")
+        await start_captain_vote(thread.id)
 
-    await thread.parent.send(
-        f"{row['team_name']} needs a new member because <@{user_id}> is not in the "
-        "team anymore."
-    )
+    await thread.parent.send(f"{row['team_name']} needs a new member because {(await bot.fetch_user(user_id)).display_name} is not in the team anymore.")
     return RemoveFromTeamOutput.NO_ERROR
 
+async def start_captain_vote(
+    team_channel_id: int
+):
+    
+    thread = await bot.fetch_channel(team_channel_id)
+    if not isinstance(thread, discord.Thread):
+        return
+
+    playerNames : tuple[str,str,str,str,str]     = tuple(["","","","",""])
+    playerIDs   : tuple[int, int, int, int, int] = tuple([0,0,0,0,0])
+
+    pollMessage = "@here who do you want to have as your captain?"
+
+
+    with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """--sql
+                    SELECT * FROM teams
+                    WHERE team_channel_id = %s
+                    """,
+                    (team_channel_id)
+                )
+                row = cur.fetchone()
+
+                if row is None: return
+
+                if (row["team_role_id"] is not None):
+                    teamPing = f"<@&{row['team_role_id']}> who do you want to have as your captain?"
+
+                if row["captain_id"] is not None:
+                    cur.execute(
+                        """--sql
+                        UPDATE teams
+                        SET captain_id = NULL
+                        WHERE captain_id = %s
+                        """,
+                        (row["captain_id"])
+                    )
+                
+                for i, column in enumerate(TEAM_PLAYER_COLUMNS):
+                    id = row[column]
+                    if id == 0: continue
+                    try:
+                        username = (await thread.guild.fetch_member(id)).display_name
+                        playerNames[i] = username
+                        playerIDs[i] = id
+                    except discord.HTTPException:
+                        pass 
+
+                filteredPlayerNames = filter(None, playerNames)
+                filteredPlayerIDs = filter(None, playerIDs)
+
+                poll = discord.Poll(
+                    question = pollMessage,
+                    duration = 24
+                ) 
+
+                for playerName in filteredPlayerNames:
+                    poll.add_answer(text=playerName)
+
+                players = [
+                    {
+                        "answer_index": memberName,
+                        "user_id": memberID
+                    }
+                    for memberName, memberID in zip(filteredPlayerNames, filteredPlayerIDs)
+                ]
+
+                message = await thread.send(poll=poll)
+
+                cur.execute(
+                    """
+                    INSERT INTO captain_poll_finish_times(
+                        finish_time,
+                        poll_discord_id,
+                        channel_discord_id,
+                        players
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (poll.expires_at, message.id, thread.id, json.dumps(players, skipkeys=True))
+                )
+
+def load_captain_polls():
+    with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT finish_time, poll_discord_id, channel_discord_id, players
+                    FROM captain_poll_finish_times
+                    """
+                )
+
+                polls : list[DictRow] = cur.fetchall()
+
+    for poll in polls:
+        asyncio.create_task(wait_for_poll_finish(poll))
+                    
+async def wait_for_poll_finish(poll : DictRow):
+
+    delay = (poll["finish_time"] - datetime.now(timezone.utc)).total_seconds()
+
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+    await handle_finished_poll(
+        poll["poll_discord_id"],
+        poll["channel_discord_id"],
+        poll["players"]
+    )
+
+async def handle_finished_poll(
+    poll_discord_id : int,
+    channel_discord_id : int,
+    players : list[dict[str, int]]
+):
+    # Nachricht anhand der Discord-ID holen
+    channel = bot.get_channel(channel_discord_id)
+
+    if channel is None:
+        return
+
+    message = await channel.fetch_message(poll_discord_id)
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM captain_poll_finish_times
+                WHERE poll_discord_id = %s
+                """,
+                (poll_discord_id,)
+            )
+    poll = message.poll
+    if not isinstance(poll, discord.Poll): return
+    
+    if not poll.is_finalised:
+        await poll.end()
+
+    answers = poll.answers
+
+    sorted_answers = sorted(
+        enumerate(answers),
+        key = lambda answer: (-answer[1].vote_count, answer[0]),
+    )
+
+    guild = await bot.fetch_guild(ALLOWED_GUILD_ID)
+    captainRole = await guild.fetch_role(CAPTAIN_ROLE_ID)
+
+    for i, sorted_answer in enumerate(sorted_answers):
+        playerID  = players[i][sorted_answer]
+        try:
+            member = await guild.fetch_member(playerID)
+        except:
+            continue
+
+        await member.add_roles(captainRole)
+    
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """--sql
+                    UPDATE teams
+                    SET captain_id = %s
+                    WHERE team_channel_id = %s
+                    """,
+                    (playerID, channel_discord_id)
+                )
+                if cur.rowcount() == 0:
+                    await member.remove_roles(captainRole)
+                    continue
 
 bot.run(TOKEN)
