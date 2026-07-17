@@ -109,8 +109,13 @@ async def team_creation_run_at(target_time: datetime):
 @bot.event
 async def on_ready():
     bot.add_dynamic_items(AcceptFriendshipInviteView)
-    await bot.tree.sync()
-    print(f"{bot.user} is online!")
+    try:
+        synced = await bot.tree.sync(guild=discord.Object(id=ALLOWED_GUILD_ID))
+        print(f"Synced {len(synced)} commands to guild {ALLOWED_GUILD_ID}", flush=True)
+    except Exception as e:
+        print(f"Sync failed: {e}", flush=True)
+
+    print(f"{bot.user} is online!", flush=True)
 
     # needs to be changed
     teamTime= datetime(2026, 12, 31, 0, tzinfo=timezone.utc)
@@ -118,8 +123,13 @@ async def on_ready():
     asyncio.create_task(team_creation_run_at(teamTime))
     asyncio.create_task(captain_vote_run_at(captainTime))
 
-    load_captain_polls()
+    bot.add_dynamic_items(AcceptFriendshipInviteView)
 
+    load_captain_polls()
+    
+@bot.event
+async def on_message(message):
+    pass
 
 
 @bot.event
