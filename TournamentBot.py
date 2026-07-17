@@ -148,9 +148,9 @@ async def on_ready():
 
 
     # needs to be changed
-    teamTime = datetime(row["team_creation_time"])
-    captainTime = datetime(row["captain_vote_time"])
-    tournamentTime = datetime(row["tournament_start_time"])
+    teamTime : datetime = row["team_creation_time"]
+    captainTime : datetime = row["captain_vote_time"]
+    tournamentTime : datetime = row["tournament_start_time"]
     asyncio.create_task(team_creation_run_at(teamTime))
     asyncio.create_task(captain_vote_run_at(captainTime))
     asyncio.create_task(start_tournament(tournamentTime))
@@ -289,7 +289,7 @@ async def sign_in(
     if be_substitute:
         substitute_role = discord.utils.get(interaction.guild.roles, name=SUBSTITUTE_ROLE_NAME)
         if substitute_role is None: return
-        await interaction.user.add_roles(await get_or_fetch_role(interaction.guild, substitute_role))
+        await interaction.user.add_roles(substitute_role)
 
     await interaction.response.send_message("You are now signed in.", ephemeral=True)
 
@@ -774,9 +774,8 @@ async def admin_set_teamname_from_team(
                 )
                 row = cur.fetchone()
                 roleID = row["team_role_id"]
-                if roleID is not None:
-                    roleID = int(roleID)
-                else: "There was no role found that is linked to the mentioned thread."
+                if roleID is None:
+                    output = "There was no role found that is linked to the mentioned thread."
 
     
     if roleID is None:
@@ -851,14 +850,11 @@ async def captain_set_teamname(
                 )
                 row = cur.fetchone()
 
-                channelID = row["team_channel_id"]
-                if channelID is not None:
-                    channelID = int(channelID)
+                channelID : int = row["team_channel_id"]
 
-                roleID = row["team_role_id"]
-                if roleID is not None:
-                    channelID = int(channelID)
-                else: output = "There was no role found that is linked to the mentioned thread."
+                roleID : int = row["team_role_id"]
+                if roleID is None:
+                    output = "There was no role found that is linked to the mentioned thread."
 
     if channelID == None or roleID is None:
         await interaction.response.send_message(output, ephemeral=True)
@@ -1203,9 +1199,6 @@ async def captain_start_team_captain_vote(
 
                 row = cur.fetchone()
                 channelID = row["team_channel_id"]
-
-                if channelID is not None:
-                    channelID = int(channelID)
     
     if channelID == None:
         await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
@@ -1774,7 +1767,7 @@ def insertTeamsIntoTournamentTable():
                     """
                 )
                 row = cur.fetchone()
-                tournamentURL = str(row["tournament_id"])
+                tournamentURL = row["tournament_id"]
 
                 cur.execute(
                     """--sql
