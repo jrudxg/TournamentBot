@@ -144,7 +144,7 @@ async def on_ready():
                 SELECT team_creation_time, captain_vote_time, tournament_start_time FROM key_value
                 """
             )
-            cur.fetchone()
+            row = cur.fetchone()
 
 
     # needs to be changed
@@ -804,7 +804,7 @@ def has_captain_role():
     return app_commands.check(predicate)
 
 
-@has_captain_role
+@has_captain_role()
 @bot.tree.command(
     name="captain_set_teamname",
     description="Sets the teamname",
@@ -965,7 +965,7 @@ def is_server_owner():
 
     return app_commands.check(predicate)
 
-@is_server_owner
+@is_server_owner()
 @bot.tree.command(
     name="owner_insert_teams_in_tournament", 
     description="Starts the tournament.",
@@ -1169,7 +1169,7 @@ async def admin_start_captain_vote(
     await interaction.response.send_message("The poll will now be created")
     await start_captain_vote(team_thread.id)
 
-@has_captain_role
+@has_captain_role()
 @bot.tree.command(
     name="captain_start_team_captain_vote", 
     description="Starts a captain vote in a team manually.",
