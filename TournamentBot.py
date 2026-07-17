@@ -63,7 +63,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix=None, intents=intents)
+bot = commands.Bot(command_prefix="/", intents=intents)
 
 
 async def get_or_fetch_guild(guild_id: int) -> discord.Guild | None:
