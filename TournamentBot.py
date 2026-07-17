@@ -35,7 +35,6 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 CHALLONGE_API_KEY = os.getenv("CHALLONGE_API_KEY")
 CHALLONGE_USER = os.getenv("CHALLONGE_USER")
-TOURNAMENT_ID = os.getenv("TOURNAMENT_ID")
 
 ALLOWED_GUILD_ID = 1519693560268455990
 TEAM_SIZE = 5
@@ -108,11 +107,17 @@ async def team_creation_run_at(target_time: datetime):
     await start_creating_teams()
     
 async def start_tournament(target_time: datetime):
+
     now = datetime.now(timezone.utc)
     delay = (target_time - now).total_seconds()
 
     if delay > 0:
         await asyncio.sleep(delay)
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            if queries.check_if_tournament_started(cur):
+                return
 
     insertTeamsIntoTournamentTable()
 
@@ -131,11 +136,24 @@ async def on_ready():
 
     print(f"{bot.user} is online!", flush=True)
 
+    row : DictRow
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """--sql
+                SELECT team_creation_time, captain_vote_time, tournament_start_time FROM key_value
+                """
+            )
+            cur.fetchone()
+
+
     # needs to be changed
-    teamTime= datetime(2026, 12, 31, 0, tzinfo=timezone.utc)
-    captainTime = datetime(2027, 1, 2, 0, tzinfo=timezone.utc)
+    teamTime = datetime(row["team_creation_time"])
+    captainTime = datetime(row["captain_vote_time"])
+    tournamentTime = datetime(row["tournament_start_time"])
     asyncio.create_task(team_creation_run_at(teamTime))
     asyncio.create_task(captain_vote_run_at(captainTime))
+    asyncio.create_task(start_tournament(tournamentTime))
 
     bot.add_dynamic_items(AcceptFriendshipInviteView)
 
@@ -725,10 +743,16 @@ async def admin_set_teamname_from_team(
         await interaction.response.send_message("The team name is isn't allowed. Please make sure that the team name is between 1 and 32 characters long.", ephemeral=True)
         return
 
+    output = "The team name has been changed."
     roleID : int | None = None
     for _ in (True,):
         with pool.connection() as conn:
             with conn.cursor() as cur:
+
+                if queries.check_if_tournament_started():
+                    output = "The tournament already started."
+                    break
+
                 cur.execute(
                     f"""--sql
                     UPDATE teams
@@ -737,7 +761,9 @@ async def admin_set_teamname_from_team(
                     """,
                     (new_team_name, team_thread.id)
                 )
-                if cur.rowcount == 0: break
+                if cur.rowcount == 0: 
+                    output = "There was no team found that uses the mentioned thread."
+                    break
 
                 cur.execute(
                     f"""--sql
@@ -750,12 +776,13 @@ async def admin_set_teamname_from_team(
                 roleID = row["team_role_id"]
                 if roleID is not None:
                     roleID = int(roleID)
+                else: "There was no role found that is linked to the mentioned thread."
 
     
     if roleID is None:
-        await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
+        await interaction.response.send_message(output, ephemeral=True)
         return
-    await interaction.response.send_message("The team name has been changed.", ephemeral=True)
+    await interaction.response.send_message(output, ephemeral=True)
 
     await team_thread.edit(name=new_team_name)
     
@@ -791,11 +818,18 @@ async def captain_set_teamname(
         await interaction.response.send_message("The team name is isn't allowed. Please make sure that the team name is between 1 and 32 characters long.", ephemeral=True)
         return
 
+    output = "The team name has been changed."
     channelID : int | None = None
     roleID    : int | None = None
     for _ in (True,):
         with pool.connection() as conn:
             with conn.cursor() as cur:
+
+                if queries.check_if_tournament_started():
+                    output = "The tournament already started."
+                    roleID = 0
+                    break
+
                 cur.execute(
                     f"""--sql
                     UPDATE teams
@@ -805,6 +839,7 @@ async def captain_set_teamname(
                     (new_team_name, interaction.user.id)
                 )
                 if cur.rowcount == 0:
+                    output = "There was no team found that uses the mentioned thread."
                     break
 
                 cur.execute(
@@ -823,12 +858,13 @@ async def captain_set_teamname(
                 roleID = row["team_role_id"]
                 if roleID is not None:
                     channelID = int(channelID)
+                else: output = "There was no role found that is linked to the mentioned thread."
 
     if channelID == None or roleID is None:
-        await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
+        await interaction.response.send_message(output, ephemeral=True)
         return
     
-    interaction.response.send_message("The team name has been changed.", ephemeral=True)
+    interaction.response.send_message(output, ephemeral=True)
 
     thread = await get_or_fetch_channel(channelID)
     await thread.edit(name=new_team_name)
@@ -867,23 +903,34 @@ async def admin_delete_team(
     interaction: discord.Interaction,
     thread: discord.Thread
 ):
-    
+    tournament_started = False
     row : DictRow
 
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """--sql
-                SELECT team_role_id FROM teams
-                WHERE team_channel_id = %s
-                """,
-                (thread.id,)
-            )
-            row = cur.fetchone()
+    for _ in (True,):
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                if queries.check_if_tournament_started(cur):
+                    tournament_started = True
+                    break
+
+
+                cur.execute(
+                    """--sql
+                    SELECT team_role_id FROM teams
+                    WHERE team_channel_id = %s
+                    """,
+                    (thread.id,)
+                )
+                row = cur.fetchone()
+
+    if tournament_started:
+        await interaction.response.send_message("The tournament already started.", ephemeral=True)
+        return
 
     if row is None:
         await interaction.response.send_message("There was no team found with the specific thread", ephemeral=True)
-    
+        return
+
     role = await get_or_fetch_role(interaction.guild, row["team_role_id"])
     if role is None: return
     await role.delete()
@@ -1332,6 +1379,7 @@ async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
     rows : list[DictRow] = []
     with pool.connection() as conn:
         with conn.cursor() as cur:
+
             if queries.check_if_teams_exist(cur):
                 return (
                     CreateTeamsOutput.TEAMS_ALREADY_CREATED,
@@ -1708,6 +1756,7 @@ async def handle_finished_poll(
 def insertTeamsIntoTournamentTable():
 
     names : list[str] = []
+    tournamentURL : str
 
     with pool.connection() as conn:
             with conn.cursor() as cur:
@@ -1716,12 +1765,26 @@ def insertTeamsIntoTournamentTable():
                     SELECT team_name FROM teams
                     """
                 )
-
                 rows = cur.fetchall()
                 names = [row["team_name"] for row in rows]
 
+                cur.execute(
+                    """--sql
+                    SELECT tournament_id FROM key_value
+                    """
+                )
+                row = cur.fetchone()
+                tournamentURL = str(row["tournament_id"])
+
+                cur.execute(
+                    """--sql
+                    UPDATE key_value
+                    SET tournament_started = TRUE
+                    """
+                )
+
     with challonge.Client(user=CHALLONGE_USER, api_key=CHALLONGE_API_KEY, timezone="UTC") as client:
-        tournament =  client.tournaments.show(TOURNAMENT_ID)
+        tournament =  client.tournaments.show(tournamentURL)
         client.participants.bulk_add(tournament.id, names)
         client.tournaments.start(tournament.id)
 

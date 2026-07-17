@@ -210,6 +210,15 @@ def check_if_teams_exist(cur: Cursor[DictRow]) -> bool:
     )
     return cur.fetchone() is not None
 
+def check_if_tournament_started(cur: Cursor[DictRow]) -> bool:
+    """Return True if at tournament_started from key_value is also true."""
+    cur.execute(
+        """--sql
+        SELECT tournament_started FROM key_value
+        """
+    )
+    row = cur.fetchone()
+    return bool(row["tournament_started"])
 
 def insert_team(
     cur: Cursor[DictRow],
