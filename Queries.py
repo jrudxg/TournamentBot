@@ -113,7 +113,7 @@ def get_all_player_ids(
 
     filterExtension = "" if not filterFriendsOut else \
     """--sql
-    AND friend_code = NULL
+    AND friend_code IS NULL
     """
 
     filterText = \

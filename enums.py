@@ -16,6 +16,7 @@ class QueryErrors(Enum):
 class CreateTeamsOutput(Enum):
     """Outcome of the `start_creating_teams` process."""
     NO_TEAM_CHANNEL = auto()
+    TEAMS_ALREADY_CREATED = auto()
     NO_ERROR = auto()
 
 
