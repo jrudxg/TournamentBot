@@ -32,6 +32,10 @@ from keep_alive import keep_alive
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL")
+CHALLONGE_API_KEY = os.getenv("CHALLONGE_API_KEY")
+CHALLONGE_USER = os.getenv("CHALLONGE_USER")
+TOURNAMENT_ID = os.getenv("TOURNAMENT_ID")
 
 CAPTAIN_ROLE_ID = 1525497948396585090
 SUBSTITUTE_ROLE_ID = 1525494403291025519
@@ -50,11 +54,10 @@ TEAM_PLAYER_COLUMNS = (
 )
 
 pool = ConnectionPool(
-    "postgresql://neondb_owner:npg_rSwaRGpoA3j9@ep-green-darkness-aszevld8-pooler"
-    ".c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+    DATABASE_URL,
     min_size=1,
     max_size=5,
-    kwargs={"row_factory": dict_row},
+    kwargs={"row_factory": dict_row}
 )
 
 keep_alive()
@@ -1550,8 +1553,8 @@ def insertTeamsIntoTournamentTable():
                 rows = cur.fetchall()
                 names = [row["team_name"] for row in rows]
 
-    with challonge.Client(user="Jrudxg", api_key="dbdf65f842b4178ef65ac242be82fe404247b5d2d8879610", timezone="UTC") as client:
-        tournament =  client.tournaments.show(18228090)
+    with challonge.Client(user=CHALLONGE_USER, api_key=CHALLONGE_API_KEY, timezone="UTC") as client:
+        tournament =  client.tournaments.show(TOURNAMENT_ID)
         client.participants.bulk_add(tournament.id, names)
         client.tournaments.start(tournament.id)
 

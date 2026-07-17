@@ -208,7 +208,7 @@ def check_if_teams_exist(cur: Cursor[DictRow]) -> bool:
         LIMIT 1
         """
     )
-    return cur.rowcount != 0
+    return cur.fetchone() is not None
 
 
 def insert_team(
