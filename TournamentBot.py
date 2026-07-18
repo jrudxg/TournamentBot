@@ -53,7 +53,7 @@ TEAM_PLAYER_COLUMNS = (
 )
 
 # TODO: Needs to be replaced with team images
-TEAM_PLACEHOLDER_IMAGE_URL = "https://placehold.co/256x256/2b3d54/ffffff?text=Team"
+TEAM_PLACEHOLDER_IMAGE_URL = "https://imgur.com/XwQTC7b"
 
 pool = ConnectionPool(
     DATABASE_URL,
@@ -521,6 +521,11 @@ async def team_profile(interaction: discord.Interaction, team_role: discord.Role
 
     members_rows : list[tuple[int, DictRow | None]] = []
 
+
+    if team_role is None:
+        await interaction.response.send_message("No role found", ephemeral=True)
+        return
+    
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
