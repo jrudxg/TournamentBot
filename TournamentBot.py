@@ -53,7 +53,7 @@ TEAM_PLAYER_COLUMNS = (
 )
 
 # TODO: Needs to be replaced with team images
-TEAM_PLACEHOLDER_IMAGE_URL = "https://imgur.com/XwQTC7b"
+TEAM_PLACEHOLDER_IMAGE_URL = "https://i.imgur.com/XwQTC7b.png"
 
 pool = ConnectionPool(
     DATABASE_URL,
