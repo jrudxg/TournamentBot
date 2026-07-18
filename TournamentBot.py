@@ -515,7 +515,6 @@ async def user_profile(interaction: discord.Interaction, user: discord.Member | 
     description="Shows a team profile card.",
     guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
-@app_commands.describe(user="Whose profile to show (defaults to yourself)")
 async def team_profile(interaction: discord.Interaction, team_role: discord.Role):
 
     guild = interaction.guild
