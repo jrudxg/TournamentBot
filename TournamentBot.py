@@ -519,7 +519,7 @@ async def team_profile(interaction: discord.Interaction, team_role: discord.Role
 
     guild = interaction.guild
 
-    players = list[DictRow]
+    members_rows : list[tuple[int, DictRow | None]] = []
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -530,23 +530,36 @@ async def team_profile(interaction: discord.Interaction, team_role: discord.Role
                 """,
                 (team_role.id,),
             )
-            team_row = cur.fetchone()
+            team_row : DictRow | None = cur.fetchone()
+            if team_row is None:
+                for column in TEAM_PLAYER_COLUMNS:
+                    user_id : int = team_row[column]
 
-            players = [queries.select_player_with_discord_id(cur, team_row[player])[0] for player in TEAM_PLAYER_COLUMNS]
+                    if user_id is None or user_id == EMPTY_SLOT_ID:
+                        continue
 
-    members : list[discord.Member] = []
-    for player in TEAM_PLAYER_COLUMNS:
-        member = await get_or_fetch_member(guild, team_row[player])
-        if member is not None: members.append(member)
+                    member_row, _ = queries.select_player_with_discord_id(cur, user_id)
+                    members_rows.append(user_id, member_row)
 
-    member_rows = list(zip(members, players))
-    embed = await build_team_profile_embeds(guild, member_rows)
+    if team_row is None:
+        interaction.response.send_message("No team with this role was found", ephemeral=True)
+        return
+
+    resolved_members: list[tuple[discord.Member, DictRow | None]] = []
+    for player_id, player_row in members_rows:
+        try:
+            resolved_member = await get_or_fetch_member(interaction.guild, player_id)
+        except discord.NotFound:
+            continue
+        resolved_members.append((resolved_member, player_row))
+
+    embeds = await build_team_profile_embeds(guild, team_row, resolved_members)
     view = TeamView(
         team_channel_id=team_row["team_channel_id"] if team_row else None,
-        members=members
+        members=[member for member, _ in resolved_members]
     )
 
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    await interaction.response.send_message(embeds=embeds, view=view, ephemeral=True)
 
 
 # ============================================================
@@ -1441,7 +1454,7 @@ async def build_user_profile_embed(
 
     embed.description = (
         f"**Steam:** {steam_name if steam_name else '*No Steam name set*'}\n\n"
-        f"**Status:** {'🟢 signed in' if signed_in else '🔴 signed out'}\n\n"
+        f"**Status:** {'signed in' if signed_in else 'signed out'}\n\n"
         f"**Role:** {role_category}\n\n"
         f"**Friend:** {friend_member.mention if friend_member else '*No Friend*'}\n\n"
         f"**Team:** {team_row['team_name'] if team_row else '*No Team*'} | "
