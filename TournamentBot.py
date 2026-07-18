@@ -538,12 +538,12 @@ async def team_profile(interaction: discord.Interaction, team_role: discord.Role
                     if user_id is None or user_id == EMPTY_SLOT_ID:
                         continue
 
-                    row, _ = queries.select_player_with_discord_id(cur, user_id)
+                    row, _ = queries.select_player_with_discord_id(cur, user_id) 
                     member_row = (user_id, row)
                     members_rows.append(member_row)
 
     if team_row is None:
-        interaction.response.send_message("No team with this role was found", ephemeral=True)
+        await interaction.response.send_message("No team with this role was found", ephemeral=True)
         return
 
     resolved_members: list[tuple[discord.Member, DictRow | None]] = []
