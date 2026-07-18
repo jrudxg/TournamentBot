@@ -531,7 +531,7 @@ async def team_profile(interaction: discord.Interaction, team_role: discord.Role
                 (team_role.id,),
             )
             team_row : DictRow | None = cur.fetchone()
-            if team_row is None:
+            if team_row is not None:
                 for column in TEAM_PLAYER_COLUMNS:
                     user_id : int = team_row[column]
 
