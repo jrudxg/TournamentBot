@@ -238,3 +238,5 @@ def insert_team(
         """,
         (team_name, team_channel_id, team_role_id, *player_ids),
     )
+
+    

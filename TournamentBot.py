@@ -11,7 +11,7 @@ import uuid
 import challonge
 
 import discord
-import psycopg
+import pycountry
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -21,7 +21,7 @@ from psycopg_pool import ConnectionPool
 import json
 import asyncio
 import queries
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from enums import CreateTeamsOutput, QueryErrors, RemoveFromTeamOutput
 from collections import defaultdict
 from keep_alive import keep_alive
@@ -51,6 +51,9 @@ TEAM_PLAYER_COLUMNS = (
     "player4_id",
     "player5_id",
 )
+
+# TODO: Needs to be replaced with team images
+TEAM_PLACEHOLDER_IMAGE_URL = "https://placehold.co/256x256/2b3d54/ffffff?text=Team"
 
 pool = ConnectionPool(
     DATABASE_URL,
@@ -454,6 +457,97 @@ async def change_substitute(interaction: discord.Interaction, be_substitute: boo
 
     if be_substitute: await interaction.user.add_roles(substitute_role)
     else: await interaction.user.remove_roles(substitute_role)
+
+@bot.tree.command(
+    name="user_profile",
+    description="Shows a user profile card, including team info if applicable.",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+@app_commands.describe(user="Whose profile to show (defaults to yourself)")
+async def user_profile(interaction: discord.Interaction, user: discord.Member | None = None):
+    target = user or interaction.user
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            player, _ = queries.select_player_with_discord_id(cur, target.id)
+
+            friend_player = None
+            if player is not None and player["friend_code"] is not None:
+                cur.execute(
+                    """--sql
+                    SELECT * FROM players
+                    WHERE friend_code = %s AND discord_id != %s
+                    """,
+                    (player["friend_code"], player["discord_id"]),
+                )
+                friend_player = cur.fetchone()
+
+            cur.execute(
+                """--sql
+                SELECT * FROM teams
+                WHERE %s IN (player1_id, player2_id, player3_id, player4_id, player5_id)
+                """,
+                (target.id,),
+            )
+            team_row = cur.fetchone()
+
+    friend_member = (
+        await get_or_fetch_member(interaction.guild, friend_player["discord_id"])
+        if friend_player
+        else None
+    )
+    captain_member = (
+        await get_or_fetch_member(interaction.guild, team_row["captain_id"])
+        if team_row and team_row["captain_id"]
+        else None
+    )
+
+    embed = await build_user_profile_embed(target, player, friend_member, team_row, captain_member)
+    view = ProfileView(
+        member=target,
+        team_channel_id=team_row["team_channel_id"] if team_row else None,
+    )
+
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+@bot.tree.command(
+    name="team_profile",
+    description="Shows a team profile card.",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+@app_commands.describe(user="Whose profile to show (defaults to yourself)")
+async def team_profile(interaction: discord.Interaction, team_role: discord.Role):
+
+    guild = interaction.guild
+
+    players = list[DictRow]
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """--sql
+                SELECT * FROM teams
+                WHERE team_role_id = %s
+                """,
+                (team_role.id,),
+            )
+            team_row = cur.fetchone()
+
+            players = [queries.select_player_with_discord_id(cur, team_row[player])[0] for player in TEAM_PLAYER_COLUMNS]
+
+    members : list[discord.Member] = []
+    for player in TEAM_PLAYER_COLUMNS:
+        member = await get_or_fetch_member(guild, team_row[player])
+        if member is not None: members.append(member)
+
+    member_rows = list(zip(members, players))
+    embed = await build_team_profile_embeds(guild, member_rows)
+    view = TeamView(
+        team_channel_id=team_row["team_channel_id"] if team_row else None,
+        members=members
+    )
+
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 # ============================================================
@@ -1162,7 +1256,7 @@ async def admin_start_captain_vote(
         await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
         return
 
-    await interaction.response.send_message("The poll will now be created")
+    await interaction.response.send_message("The poll will now be created", ephemeral=True)
     await start_captain_vote(team_thread.id)
 
 @has_captain_role()
@@ -1203,7 +1297,7 @@ async def captain_start_team_captain_vote(
     if channelID == None:
         await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
 
-    await interaction.response.send_message("The poll will now be created")
+    await interaction.response.send_message("The poll will now be created", ephemeral=True)
     await start_captain_vote()
 
 # ============================================================
@@ -1325,9 +1419,331 @@ def build_friendship_view(
     return view
 
 
+async def build_user_profile_embed(
+    member: discord.Member,
+    player: DictRow | None,
+    friend_member: discord.Member | None,
+    team_row: DictRow | None,
+    captain_member: discord.Member | None,
+) -> discord.Embed:
+    flag, _ = get_member_country(member)
+    signed_in = player is not None
+    role_category = get_role_category(player)
+
+    title = f"{flag} {member.display_name}" if flag else member.display_name
+    steam_name = player["username_steam"] if player else None
+    all_roles = [role.name for role in member.roles if role.name != "@everyone"]
+
+    embed = discord.Embed(
+        title=title,
+        color=discord.Color.green() if signed_in else discord.Color.red(),
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+
+    embed.description = (
+        f"**Steam:** {steam_name if steam_name else '*No Steam name set*'}\n\n"
+        f"**Status:** {'🟢 signed in' if signed_in else '🔴 signed out'}\n\n"
+        f"**Role:** {role_category}\n\n"
+        f"**Friend:** {friend_member.mention if friend_member else '*No Friend*'}\n\n"
+        f"**Team:** {team_row['team_name'] if team_row else '*No Team*'} | "
+        f"**Captain:** {captain_member.mention if captain_member else '*No Captain*'}\n\n"
+        f"**Roles:** {' | '.join(all_roles) if all_roles else '—'}"
+    )
+    return embed
+
+
+async def build_team_profile_embeds(
+    guild: discord.Guild,
+    team_row: DictRow,
+    member_rows: list[tuple[discord.Member, DictRow | None]],
+) -> list[discord.Embed]:
+    """Returns a list of embeds: one header embed for the team, plus one
+    embed per filled team slot. The flag is plain text inside the
+    author name — it is never part of a button."""
+    captain_member = None
+    if team_row["captain_id"] is not None:
+        captain_member = await get_or_fetch_member(guild, team_row["captain_id"])
+    captain_flag = get_member_country(captain_member)[0] if captain_member else None
+
+    header = discord.Embed(
+        title=team_row["team_name"],
+        description=(
+            f"**Captain:** "
+            f"{(captain_flag + ' ') if captain_flag else ''}"
+            f"{captain_member.mention if captain_member else '*No Captain*'}"
+        ),
+        color=discord.Color.blurple(),
+    )
+    header.set_thumbnail(url=TEAM_PLACEHOLDER_IMAGE_URL)
+
+    embeds = [header]
+
+    for member, player in member_rows:
+        flag, _ = get_member_country(member)
+        steam_name = player["username_steam"] if player else None
+
+        member_embed = discord.Embed(
+            description=f"**Steam:** {steam_name if steam_name else '*No Steam name set*'}",
+            color=discord.Color.blurple(),
+        )
+        member_embed.set_author(
+            name=f"{member.display_name} {flag}" if flag else member.display_name,
+            icon_url=member.display_avatar.url,
+        )
+        embeds.append(member_embed)
+
+    return embeds
+
+
+async def show_member_profile(interaction: discord.Interaction, member: discord.Member):
+    """Edits the current message to show `member`'s profile card."""
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            player, _ = queries.select_player_with_discord_id(cur, member.id)
+            friend_player = None
+
+            if player is not None and player["friend_code"] is not None:
+                cur.execute(
+                    """--sql
+                    SELECT * FROM players
+                    WHERE friend_code = %s AND discord_id != %s
+                    """,
+                    (player["friend_code"], player["discord_id"]),
+                )
+            friend_player = cur.fetchone()
+
+            cur.execute(
+                """--sql
+                SELECT * FROM teams
+                WHERE %s IN (player1_id, player2_id, player3_id, player4_id, player5_id)
+                """,
+                (member.id,),
+            )
+            team_row = cur.fetchone()
+
+    friend_member = (
+        await get_or_fetch_member(interaction.guild, friend_player["discord_id"])
+        if friend_player
+        else None
+    )
+    captain_member = (
+        await get_or_fetch_member(interaction.guild, team_row["captain_id"])
+        if team_row and team_row["captain_id"]
+        else None
+    )
+
+    embed = await build_user_profile_embed(member, player, friend_member, team_row, captain_member)
+    view = ProfileView(
+        member=member,
+        team_channel_id=team_row["team_channel_id"] if team_row else None,
+    )
+    await interaction.response.edit_message(embeds=[embed], view=view)
+
+
+async def show_team_profile(interaction: discord.Interaction, team_channel_id: int):
+    """Edits the current message to show the team's profile card."""
+    team_row: DictRow | None = None
+    member_rows: list[tuple[int, DictRow | None]] = []
+
+    with pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """--sql
+                SELECT * FROM teams WHERE team_channel_id = %s
+                """,
+                (team_channel_id,),
+            )
+            team_row = cur.fetchone()
+
+            if team_row is not None:
+                for column in TEAM_PLAYER_COLUMNS:
+                    player_id = team_row[column]
+                    if player_id is None or player_id == EMPTY_SLOT_ID:
+                        continue
+                    player_row, _ = queries.select_player_with_discord_id(cur, player_id)
+                    member_rows.append((player_id, player_row))
+
+    if team_row is None:
+        await interaction.response.send_message(
+            "This team no longer exists.", ephemeral=True
+        )
+        return
+
+    resolved_members: list[tuple[discord.Member, DictRow | None]] = []
+    for player_id, player_row in member_rows:
+        try:
+            resolved_member = await get_or_fetch_member(interaction.guild, player_id)
+        except discord.NotFound:
+            continue
+        resolved_members.append((resolved_member, player_row))
+
+    embeds = await build_team_profile_embeds(interaction.guild, team_row, resolved_members)
+    view = TeamView(
+        team_channel_id=team_channel_id,
+        members=[member for member, _ in resolved_members],
+    )
+    await interaction.response.edit_message(embeds=embeds, view=view)
+
+
+class ProfileView(discord.ui.View):
+    """Profile card for a single member. Anyone in the server may browse
+    it — clicking is not restricted to whoever ran the command."""
+
+    def __init__(self, *, member: discord.Member, team_channel_id: int | None):
+        super().__init__(timeout=180)
+        self.member = member
+        self.team_channel_id = team_channel_id
+
+        if team_channel_id is None:
+            self.view_team.disabled = True
+            self.view_team.label = "No Team"
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            item.disabled = True
+
+    @discord.ui.button(label="View Team", style=discord.ButtonStyle.primary, emoji="🛡️")
+    async def view_team(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await show_team_profile(interaction, self.team_channel_id)
+
+
+class MemberProfileButton(discord.ui.Button):
+    """One button per team slot, jumping straight to that member's
+    profile card. The country flag is intentionally NOT used here —
+    it stays plain text inside the embed. This button uses a neutral
+    person icon instead."""
+
+    def __init__(self, member: discord.Member):
+        super().__init__(
+            label=member.display_name[:80],
+            style=discord.ButtonStyle.secondary,
+            emoji="👤",
+        )
+        self.member = member
+
+    async def callback(self, interaction: discord.Interaction):
+        await show_member_profile(interaction, self.member)
+
+
+class TeamView(discord.ui.View):
+    """Team card with exactly one button per filled slot, opening that
+    member's profile. Anyone may click."""
+
+    def __init__(self, *, team_channel_id: int, members: list[discord.Member]):
+        super().__init__(timeout=180)
+        self.team_channel_id = team_channel_id
+
+        for member in members:
+            self.add_item(MemberProfileButton(member))
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            item.disabled = True
+
 # ============================================================
 # Helper Functions
 # ============================================================
+
+def get_role_category(player: DictRow | None) -> str:
+    """Player | Substitute | Viewer, based on sign-in state."""
+    if player is None:
+        return "Viewer"
+    return "Substitute" if player["is_substitute"] else "Player"
+
+def get_member_country(member: discord.Member) -> tuple[str | None, str | None]:
+    """Returns (flag_emoji, role_name) for the first country role a member
+    has, or (None, None) if they have none."""
+    for role in member.roles:
+        flag = role_name_to_flag_emoji(role.name)
+        if flag is not None:
+            return flag, role.name
+    return None, None
+
+NON_COUNTRY_ROLE_NAMES = {
+    "@everyone",
+    CAPTAIN_ROLE_NAME.lower(),
+    SUBSTITUTE_ROLE_NAME.lower(),
+}
+TEAM_ROLE_NAME_PATTERN = re.compile(r"^team\d+$", re.IGNORECASE)
+
+COUNTRY_ROLE_OVERRIDES: dict[str, str] = {
+    "uk": "GB",
+    "united kingdom": "GB",
+    "great britain": "GB",
+    "britain": "GB",
+    "england": "GB",
+    "vatican": "VA",
+    "vatican city": "VA",
+    "usa": "US",
+    "us": "US",
+    "america": "US",
+    "united states": "US",
+    "south korea": "KR",
+    "north korea": "KP",
+    "russia": "RU",
+    "ivory coast": "CI",
+    "czech republic": "CZ",
+    "czechia": "CZ",
+    "netherlands": "NL",
+    "holland": "NL",
+    "laos": "LA",
+    "syria": "SY",
+    "iran": "IR",
+    "bolivia": "BO",
+    "venezuela": "VE",
+    "moldova": "MD",
+    "macedonia": "MK",
+    "north macedonia": "MK",
+}
+
+
+def _alpha2_to_flag_emoji(alpha_2: str) -> str:
+    """Turns an ISO 3166-1 alpha-2 code (e.g. 'DE') into a flag emoji (🇩🇪)."""
+    return "".join(chr(0x1F1E6 + ord(char) - ord("A")) for char in alpha_2.upper())
+
+
+def role_name_to_flag_emoji(role_name: str) -> str | None:
+    """Resolves a Discord role name (English country name, e.g. 'Germany',
+    'UK', 'Vatican') to its flag emoji. Returns None if the role name does
+    not look like a country.
+    """
+    key = role_name.strip().lower()
+
+    if not key or key in NON_COUNTRY_ROLE_NAMES or TEAM_ROLE_NAME_PATTERN.match(key):
+        return None
+
+    alpha_2 = COUNTRY_ROLE_OVERRIDES.get(key)
+
+    if alpha_2 is None:
+        try:
+            country = pycountry.countries.get(name=role_name)
+            if country is None:
+                country = pycountry.countries.get(official_name=role_name)
+            if country is None:
+                if len(key) < 4:
+                    return None
+                candidates = pycountry.countries.search_fuzzy(role_name)
+                match = candidates[0]
+                names = " ".join(
+                    filter(
+                        None,
+                        [
+                            getattr(match, "name", ""),
+                            getattr(match, "official_name", ""),
+                            getattr(match, "common_name", ""),
+                        ],
+                    )
+                ).lower()
+                if not re.search(rf"\b{re.escape(key)}\b", names):
+                    return None
+                country = match
+        except LookupError:
+            return None
+
+        alpha_2 = country.alpha_2
+
+    return _alpha2_to_flag_emoji(alpha_2)
+
 
 async def start_captain_vote_everywhere():
     guild = await get_or_fetch_guild(ALLOWED_GUILD_ID)
@@ -1779,6 +2195,7 @@ def insertTeamsIntoTournamentTable():
     with challonge.Client(user=CHALLONGE_USER, api_key=CHALLONGE_API_KEY, timezone="UTC") as client:
         tournament =  client.tournaments.show(tournamentURL)
         client.participants.bulk_add(tournament.id, names)
+        client.participants.randomize(tournament.id)
         client.tournaments.start(tournament.id)
 
 
