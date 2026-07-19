@@ -787,8 +787,12 @@ async def admin_select_players(
     interaction: discord.Interaction,
     duration: str,
     members: app_commands.Range[int, 1, TEAM_SIZE],
-    text: str
+    text: str,
+    role: discord.Role = None
 ):
+    if role is None:
+        role = discord.utils.get(interaction.guild.roles, name=SUBSTITUTE_ROLE_NAME)
+
     try:
         duration_seconds = parse_duration(duration)
     except ValueError:
@@ -813,7 +817,11 @@ async def admin_select_players(
         text="Each user is counted only once."
     )
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(
+        content=role.mention,
+        embed=embed,
+        allowed_mentions=discord.AllowedMentions(roles=True)
+    )
 
     message = await interaction.original_response()
 
