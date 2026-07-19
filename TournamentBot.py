@@ -754,6 +754,24 @@ async def leave_friendship(interaction: discord.Interaction):
 # Team Management Commands
 # ============================================================
 
+@bot.tree.command(
+    name="tournament_link",
+    description="Gets the link to the tournament",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+async def tournament_link(
+    interaction: discord.Interaction,
+):
+    with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                """--sql
+                SELECT "tournament_url" FROM key_value
+                """
+            )
+            row = cur.fetchone()
+    interaction.response.send_message(f"https://challonge.com/{row["tournament_url"]}")
+
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
     name="admin_select_players",
@@ -786,7 +804,7 @@ async def admin_select_players(
     )
 
     embed.description = (
-        f"**Participants:** {members}\n\n"
+        f"**Spots:** {members}\n\n"
         f"React with any emoji to participate.\n\n"
         f"**Time Remaining:** `{duration}`"
     )
@@ -854,6 +872,9 @@ async def admin_select_players(
         embed=result,
         allowed_mentions=discord.AllowedMentions(users=True)
     )
+    amountOfWinners = len(winners)
+    if (amountOfWinners < members):
+        await message.channel.send(f"There were not enough participants to fill every spot. There are still {members - amountOfWinners} spots that need to be filled.")
 
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
