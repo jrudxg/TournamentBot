@@ -768,8 +768,8 @@ async def tournament_link(
                 """--sql
                 SELECT "tournament_url" FROM key_value
                 """
-            )
-            row = cur.fetchone()
+                )
+                row = cur.fetchone()
     interaction.response.send_message(f"https://challonge.com/{row["tournament_url"]}")
 
 @app_commands.checks.has_permissions(administrator=True)
