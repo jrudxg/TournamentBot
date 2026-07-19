@@ -53,7 +53,7 @@ TEAM_PLAYER_COLUMNS = (
 )
 
 # TODO: Needs to be replaced with team images
-TEAM_PLACEHOLDER_IMAGE_URL = "https://i.imgur.com/XwQTC7b.png"
+# TEAM_PLACEHOLDER_IMAGE_URL = "https://i.imgur.com/XwQTC7b.png"
 
 pool = ConnectionPool(
     DATABASE_URL,
@@ -1043,6 +1043,64 @@ def has_captain_role():
     return app_commands.check(predicate)
 
 
+@app_commands.checks.has_permissions(administrator=True)
+@bot.tree.command(
+    name="admin_set_team_picture",
+    description="Sets the team picture",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+async def admin_set_team_picture(
+    interaction: discord.Interaction,
+    team_thread: discord.Thread,
+    team_picture: str
+):
+    with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""--sql
+                    UPDATE teams
+                    SET team_picture = %s
+                    WHERE team_channel_id = %s
+                    """,
+                    (team_picture, team_thread.id)
+                )
+                row = cur.fetchone()
+
+    if row is None:
+        await interaction.response.send_message("No team has been found that uses this thread.", ephemeral=True)
+        return
+    await interaction.response.send_message("The team picture has been changed. Please check with /team_profile if the image works correctly.")
+
+
+@has_captain_role()
+@bot.tree.command(
+    name="captain_set_team_picture",
+    description="Sets the team picture",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+async def captain_set_team_picture(
+    interaction: discord.Interaction,
+    team_picture: str
+):
+    with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""--sql
+                    UPDATE teams
+                    SET team_picture = %s
+                    WHERE captain_id = %s
+                    """,
+                    (team_picture, interaction.user.id)
+                )
+                row = cur.fetchone()
+
+    if row is None:
+        await interaction.response.send_message("An unknown error occured", ephemeral=True)
+        return
+    await interaction.response.send_message("The team picture has been changed. Please check with /team_profile if the image works correctly.")
+
+                
+
 @has_captain_role()
 @bot.tree.command(
     name="captain_set_teamname",
@@ -1625,7 +1683,7 @@ async def build_team_profile_embeds(
         ),
         color=discord.Color.blurple(),
     )
-    header.set_thumbnail(url=TEAM_PLACEHOLDER_IMAGE_URL)
+    header.set_thumbnail(url=team_row["team_picture"])
 
     embeds = [header]
 
