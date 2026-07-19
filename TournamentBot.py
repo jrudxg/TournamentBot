@@ -756,6 +756,103 @@ async def leave_friendship(interaction: discord.Interaction):
 
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
+    name="admin_select_players",
+    description="Randomly select participants from message reactions.",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+@app_commands.describe(
+    duration="Example: 5m, 1h30m, 2d4h10s",
+    members="Number of participants to select",
+    text="Title of the selection"
+)
+async def admin_select_players(
+    interaction: discord.Interaction,
+    duration: str,
+    members: app_commands.Range[int, 1, TEAM_SIZE],
+    text: str
+):
+    try:
+        duration_seconds = parse_duration(duration)
+    except ValueError:
+        await interaction.response.send_message(
+            "Invalid duration format.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title=text.upper(),
+        color=discord.Color.blurple()
+    )
+
+    embed.description = (
+        f"**Participants:** {members}\n\n"
+        f"React with any emoji to participate.\n\n"
+        f"**Time Remaining:** `{duration}`"
+    )
+
+    embed.set_footer(
+        text="Each user is counted only once."
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+    message = await interaction.original_response()
+
+    remaining = duration_seconds
+
+    while remaining > 0:
+        embed.description = (
+            f"**Participants:** {members}\n\n"
+            f"React with any emoji to participate.\n\n"
+            f"**Time Remaining:** `{format_duration(remaining)}`"
+        )
+
+        await message.edit(embed=embed)
+
+        sleep_time = min(5, remaining)
+        await asyncio.sleep(sleep_time)
+        remaining -= sleep_time
+
+    message = await message.channel.fetch_message(message.id)
+
+    participants = set()
+
+    for reaction in message.reactions:
+        async for user in reaction.users():
+            if not user.bot:
+                participants.add(user.id)
+
+    if not participants:
+        await message.reply("No participants joined.")
+        return
+
+    winners = random.sample(
+        list(participants),
+        min(members, len(participants))
+    )
+
+    mentions = " ".join(f"<@{user_id}>" for user_id in winners)
+
+    result = discord.Embed(
+        title="Selection Complete",
+        color=discord.Color.green()
+    )
+
+    result.add_field(
+        name="Selected Participants",
+        value=mentions,
+        inline=False
+    )
+
+    result.set_footer(
+        text=f"Selected {len(winners)} out of {len(participants)} participants."
+    )
+
+    await message.reply(embed=result)
+
+@app_commands.checks.has_permissions(administrator=True)
+@bot.tree.command(
     name="admin_start_create_teams", 
     description="Creates the teams for the tournament",
     guild=discord.Object(id=ALLOWED_GUILD_ID)
@@ -1325,101 +1422,6 @@ async def captain_start_team_captain_vote(
 # ============================================================
 # UI Components
 # ============================================================
-
-@bot.tree.command(
-    name="selection",
-    description="Randomly select participants from message reactions."
-)
-@app_commands.describe(
-    duration="Example: 5m, 1h30m, 2d4h10s",
-    members="Number of participants to select",
-    text="Title of the selection"
-)
-async def selection(
-    interaction: discord.Interaction,
-    duration: str,
-    members: app_commands.Range[int, 1, TEAM_SIZE],
-    text: str
-):
-    try:
-        duration_seconds = parse_duration(duration)
-    except ValueError:
-        await interaction.response.send_message(
-            "Invalid duration format.",
-            ephemeral=True
-        )
-        return
-
-    embed = discord.Embed(
-        title=text.upper(),
-        color=discord.Color.blurple()
-    )
-
-    embed.description = (
-        f"**Participants:** {members}\n\n"
-        f"React with any emoji to participate.\n\n"
-        f"**Time Remaining:** `{duration}`"
-    )
-
-    embed.set_footer(
-        text="Each user is counted only once."
-    )
-
-    await interaction.response.send_message(embed=embed)
-
-    message = await interaction.original_response()
-
-    remaining = duration_seconds
-
-    while remaining > 0:
-        embed.description = (
-            f"**Participants:** {members}\n\n"
-            f"React with any emoji to participate.\n\n"
-            f"**Time Remaining:** `{format_duration(remaining)}`"
-        )
-
-        await message.edit(embed=embed)
-
-        sleep_time = min(5, remaining)
-        await asyncio.sleep(sleep_time)
-        remaining -= sleep_time
-
-    message = await message.channel.fetch_message(message.id)
-
-    participants = set()
-
-    for reaction in message.reactions:
-        async for user in reaction.users():
-            if not user.bot:
-                participants.add(user.id)
-
-    if not participants:
-        await message.reply("No participants joined.")
-        return
-
-    winners = random.sample(
-        list(participants),
-        min(members, len(participants))
-    )
-
-    mentions = " ".join(f"<@{user_id}>" for user_id in winners)
-
-    result = discord.Embed(
-        title="Selection Complete",
-        color=discord.Color.green()
-    )
-
-    result.add_field(
-        name="Selected Participants",
-        value=mentions,
-        inline=False
-    )
-
-    result.set_footer(
-        text=f"Selected {len(winners)} out of {len(participants)} participants."
-    )
-
-    await message.reply(embed=result)
 
 class AcceptFriendshipInviteView(
     discord.ui.DynamicItem[discord.ui.Button],
