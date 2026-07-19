@@ -988,8 +988,7 @@ async def admin_set_teamname_from_team(
     for _ in (True,):
         with pool.connection() as conn:
             with conn.cursor() as cur:
-
-                if queries.check_if_tournament_started():
+                if queries.check_if_tournament_started(cur):
                     output = "The tournament already started."
                     break
 
@@ -1063,8 +1062,7 @@ async def captain_set_teamname(
     for _ in (True,):
         with pool.connection() as conn:
             with conn.cursor() as cur:
-
-                if queries.check_if_tournament_started():
+                if queries.check_if_tournament_started(cur):
                     output = "The tournament already started."
                     roleID = 0
                     break
