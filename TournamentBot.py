@@ -850,6 +850,7 @@ async def admin_select_players(
     )
 
     await message.reply(
+        content=mentions,
         embed=result,
         allowed_mentions=discord.AllowedMentions(users=True)
     )
