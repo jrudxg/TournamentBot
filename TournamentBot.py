@@ -834,9 +834,6 @@ async def admin_select_players(
 
     mentions = " ".join(f"<@{user_id}>" for user_id in winners)
 
-    winner_users = [await get_or_fetch_member(message.guild, user_id) for user_id in winners]
-    winner_users = [user for user in winner_users if user is not None]
-
     result = discord.Embed(
         title="Selection Complete",
         color=discord.Color.green()
@@ -854,7 +851,7 @@ async def admin_select_players(
 
     await message.reply(
         embed=result,
-        allowed_mentions=discord.AllowedMentions(user=winner_users)
+        allowed_mentions=discord.AllowedMentions(users=True)
     )
 
 @app_commands.checks.has_permissions(administrator=True)
