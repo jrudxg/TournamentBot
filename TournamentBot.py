@@ -810,7 +810,7 @@ async def admin_select_players(
 
         await message.edit(embed=embed)
 
-        sleep_time = min(5, remaining)
+        sleep_time = min(1, remaining)
         await asyncio.sleep(sleep_time)
         remaining -= sleep_time
 
@@ -834,6 +834,9 @@ async def admin_select_players(
 
     mentions = " ".join(f"<@{user_id}>" for user_id in winners)
 
+    winner_users = [await get_or_fetch_member(message.guild, user_id) for user_id in winners]
+    winner_users = [user for user in winner_users if user is not None]
+
     result = discord.Embed(
         title="Selection Complete",
         color=discord.Color.green()
@@ -849,7 +852,10 @@ async def admin_select_players(
         text=f"Selected {len(winners)} out of {len(participants)} participants."
     )
 
-    await message.reply(embed=result)
+    await message.reply(
+        embed=result,
+        allowed_mentions=discord.AllowedMentions(user=winner_users)
+    )
 
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
