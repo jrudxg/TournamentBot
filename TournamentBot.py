@@ -332,9 +332,7 @@ async def sign_out(interaction: discord.Interaction):
                     
                     if player is not None and not player["is_substitute"]:
                         output = (
-                            "You can't sign out if you are already part of a team. "
-                            "If you want to sign out, you have to cancel the other "
-                            "friendship (request)."
+                            "You can't sign out if you are already part of a team. If you want to sign out, you have to leave the team"
                         )
                         break
 
@@ -782,7 +780,7 @@ async def leave_team(interaction: discord.Interaction):
     elif error is RemoveFromTeamOutput.PLAYER_NOT_FOUND:
         await interaction.followup.send("You are not part of a team.", ephemeral=True)
     elif error is RemoveFromTeamOutput.NO_ERROR:
-        await interaction.followup.send("You successfully left your team.", ephemeral=True)
+        await interaction.followup.send("You successfully left your team. User /sign_out to sign out or /change_substitute to become a substitute", ephemeral=True)
     else:
         await interaction.followup.send("An unknown error has been found.")
 
@@ -983,7 +981,7 @@ async def captain_set_teamname(
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
     name="admin_remove_user_from_team", 
-    description="Removes a player from a team.",
+    description="Removes a player from a team. It is advisable to let the player know why the removal happened.",
     guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
 async def admin_remove_user_from_team(interaction: discord.Interaction, user: discord.User):
@@ -1236,6 +1234,12 @@ async def admin_fill_team_with_user(
                 queries.set_in_players(cur, 0, "is_substitute", False, player)
                 team_name = row['team_name']
 
+    if player["is_substitute"]:
+        substitute_role = discord.utils.get(interaction.guild.roles, name=SUBSTITUTE_ROLE_NAME)
+        if substitute_role is None: return
+        await interaction.user.remove_roles(await get_or_fetch_role(interaction.guild, substitute_role))
+
+
     if output != "":
         interaction.followup.send(output, ephemeral=True)
         return
@@ -1321,6 +1325,101 @@ async def captain_start_team_captain_vote(
 # ============================================================
 # UI Components
 # ============================================================
+
+@bot.tree.command(
+    name="selection",
+    description="Randomly select participants from message reactions."
+)
+@app_commands.describe(
+    duration="Example: 5m, 1h30m, 2d4h10s",
+    members="Number of participants to select",
+    text="Title of the selection"
+)
+async def selection(
+    interaction: discord.Interaction,
+    duration: str,
+    members: app_commands.Range[int, 1, TEAM_SIZE],
+    text: str
+):
+    try:
+        duration_seconds = parse_duration(duration)
+    except ValueError:
+        await interaction.response.send_message(
+            "Invalid duration format.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title=text.upper(),
+        color=discord.Color.blurple()
+    )
+
+    embed.description = (
+        f"**Participants:** {members}\n\n"
+        f"React with any emoji to participate.\n\n"
+        f"**Time Remaining:** `{duration}`"
+    )
+
+    embed.set_footer(
+        text="Each user is counted only once."
+    )
+
+    await interaction.response.send_message(embed=embed)
+
+    message = await interaction.original_response()
+
+    remaining = duration_seconds
+
+    while remaining > 0:
+        embed.description = (
+            f"**Participants:** {members}\n\n"
+            f"React with any emoji to participate.\n\n"
+            f"**Time Remaining:** `{format_duration(remaining)}`"
+        )
+
+        await message.edit(embed=embed)
+
+        sleep_time = min(5, remaining)
+        await asyncio.sleep(sleep_time)
+        remaining -= sleep_time
+
+    message = await message.channel.fetch_message(message.id)
+
+    participants = set()
+
+    for reaction in message.reactions:
+        async for user in reaction.users():
+            if not user.bot:
+                participants.add(user.id)
+
+    if not participants:
+        await message.reply("No participants joined.")
+        return
+
+    winners = random.sample(
+        list(participants),
+        min(members, len(participants))
+    )
+
+    mentions = " ".join(f"<@{user_id}>" for user_id in winners)
+
+    result = discord.Embed(
+        title="Selection Complete",
+        color=discord.Color.green()
+    )
+
+    result.add_field(
+        name="Selected Participants",
+        value=mentions,
+        inline=False
+    )
+
+    result.set_footer(
+        text=f"Selected {len(winners)} out of {len(participants)} participants."
+    )
+
+    await message.reply(embed=result)
 
 class AcceptFriendshipInviteView(
     discord.ui.DynamicItem[discord.ui.Button],
@@ -1658,9 +1757,53 @@ class TeamView(discord.ui.View):
         for item in self.children:
             item.disabled = True
 
+
+
+
 # ============================================================
 # Helper Functions
 # ============================================================
+
+def parse_duration(duration: str) -> int:
+    matches = re.findall(r"(\d+)([dhms])", duration.lower())
+
+    if not matches:
+        raise ValueError("Invalid duration.")
+
+    total = 0
+
+    units = {
+        "d": 86400,
+        "h": 3600,
+        "m": 60,
+        "s": 1
+    }
+
+    for value, unit in matches:
+        total += int(value) * units[unit]
+
+    if total <= 0:
+        raise ValueError("Duration must be greater than 0.")
+
+    return total
+
+def format_duration(seconds: int) -> str:
+    days, seconds = divmod(seconds, 86400)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+
+    parts = []
+
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if seconds or not parts:
+        parts.append(f"{seconds}s")
+
+    return " ".join(parts)
 
 def get_role_category(player: DictRow | None) -> str:
     """Player | Substitute | Viewer, based on sign-in state."""
