@@ -1064,7 +1064,7 @@ async def admin_set_team_picture(
                     """,
                     (team_picture, team_thread.id)
                 )
-                row_count = cur.rowcount()
+                row_count = cur.rowcount
 
     if row_count is 0:
         await interaction.response.send_message("No team has been found that uses this thread.", ephemeral=True)
@@ -1092,7 +1092,7 @@ async def captain_set_team_picture(
                     """,
                     (team_picture, interaction.user.id)
                 )
-                row_count = cur.rowcount()
+                row_count = cur.rowcount
 
     if row_count is None:
         await interaction.response.send_message("An unknown error occured", ephemeral=True)
