@@ -1020,12 +1020,13 @@ async def admin_set_teamname_from_team(
     if roleID is None:
         await interaction.response.send_message(output, ephemeral=True)
         return
-    await interaction.response.send_message(output, ephemeral=True)
-
+    
     await team_thread.edit(name=new_team_name)
     
     role = await get_or_fetch_role(interaction.guild, roleID)
     role.edit(name=new_team_name)
+
+    await interaction.response.send_message(output, ephemeral=True)
 
 def has_captain_role():
     async def predicate(interaction: discord.Interaction) -> bool:
@@ -1097,14 +1098,14 @@ async def captain_set_teamname(
     if channelID == None or roleID is None:
         await interaction.response.send_message(output, ephemeral=True)
         return
-    
-    interaction.response.send_message(output, ephemeral=True)
 
     thread = await get_or_fetch_channel(channelID)
     await thread.edit(name=new_team_name)
 
     role = await get_or_fetch_role(interaction.guild, roleID)
     await role.edit(name=new_team_name)
+
+    await interaction.response.send_message(output, ephemeral=True)
 
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
