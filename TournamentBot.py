@@ -154,6 +154,8 @@ async def on_ready():
     teamTime : datetime = row["team_creation_time"]
     captainTime : datetime = row["captain_vote_time"]
     tournamentTime : datetime = row["tournament_start_time"]
+    for task in asyncio.all_tasks():
+        task.cancel()
     asyncio.create_task(team_creation_run_at(teamTime))
     asyncio.create_task(captain_vote_run_at(captainTime))
     asyncio.create_task(start_tournament(tournamentTime))
@@ -193,9 +195,11 @@ async def on_member_remove(member: discord.Member):
     await remove_from_team(member.id)
 
     if player["friend_code"] is not None:
-        discord_thread_id, amount_of_players, error = (
-            queries.remove_friend_code_and_thread(cur, player["friend_code"])
-        )
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                discord_thread_id, amount_of_players, error = (
+                    queries.remove_friend_code_and_thread(cur, player["friend_code"])
+                )
 
         if discord_thread_id is None:
             return
@@ -770,7 +774,7 @@ async def tournament_link(
                 """
                 )
                 row = cur.fetchone()
-    await interaction.response.send_message(f"https://challonge.com/{row["tournament_url"]}")
+    await interaction.response.send_message(f"https://challonge.com/{row['tournament_url']}")
 
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
@@ -993,7 +997,7 @@ async def admin_set_teamname_from_team(
                     break
 
                 cur.execute(
-                    f"""--sql
+                    """--sql
                     UPDATE teams
                     SET team_name = %s
                     WHERE team_channel_id = %s
@@ -1005,7 +1009,7 @@ async def admin_set_teamname_from_team(
                     break
 
                 cur.execute(
-                    f"""--sql
+                    """--sql
                     SELECT team_role_id FROM teams
                     WHERE team_channel_id = %s
                     """,
@@ -1024,7 +1028,7 @@ async def admin_set_teamname_from_team(
     await team_thread.edit(name=new_team_name)
     
     role = await get_or_fetch_role(interaction.guild, roleID)
-    role.edit(name=new_team_name)
+    await role.edit(name=new_team_name)
 
     await interaction.response.send_message(output, ephemeral=True)
 
@@ -1057,7 +1061,7 @@ async def admin_set_team_picture(
     with pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"""--sql
+                    """--sql
                     UPDATE teams
                     SET team_picture = %s
                     WHERE team_channel_id = %s
@@ -1066,7 +1070,7 @@ async def admin_set_team_picture(
                 )
                 row_count = cur.rowcount
 
-    if row_count is 0:
+    if row_count == 0:
         await interaction.response.send_message("No team has been found that uses this thread.", ephemeral=True)
         return
     await interaction.response.send_message("The team picture has been changed. Please check with /team_profile if the image works correctly.")
@@ -1085,7 +1089,7 @@ async def captain_set_team_picture(
     with pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"""--sql
+                    """--sql
                     UPDATE teams
                     SET team_picture = %s
                     WHERE captain_id = %s
@@ -1094,7 +1098,7 @@ async def captain_set_team_picture(
                 )
                 row_count = cur.rowcount
 
-    if row_count is None:
+    if row_count == 0:
         await interaction.response.send_message("An unknown error occured", ephemeral=True)
         return
     await interaction.response.send_message("The team picture has been changed. Please check with /team_profile if the image works correctly.")
@@ -1139,7 +1143,7 @@ async def captain_set_teamname(
                     break
 
                 cur.execute(
-                    f"""--sql
+                    """--sql
                     SELECT team_role_id, team_channel_id FROM teams
                     WHERE captain_id = %s
                     """,
@@ -1153,7 +1157,7 @@ async def captain_set_teamname(
                 if roleID is None:
                     output = "There was no role found that is linked to the mentioned thread."
 
-    if channelID == None or roleID is None:
+    if channelID is None or roleID is None:
         await interaction.response.send_message(output, ephemeral=True)
         return
 
@@ -1267,9 +1271,9 @@ def is_server_owner():
 async def owner_insert_teams_in_tournament(
     interaction: discord.Interaction
 ):
-    interaction.response.defer()
+    await interaction.response.defer()
     insertTeamsIntoTournamentTable()
-    interaction.followup.send("Teams have successfully been created", ephemeral=True)
+    await interaction.followup.send("Teams have successfully been created", ephemeral=True)
 
 
 @is_server_owner()
@@ -1281,7 +1285,7 @@ async def owner_insert_teams_in_tournament(
 async def admin_reset_all(
     interaction: discord.Interaction,
 ):
-    interaction.response.defer()
+    await interaction.response.defer()
 
     friend_channel = discord.utils.get(interaction.guild.text_channels, name=FRIEND_CHANNEL_NAME)
     if friend_channel is not None: 
@@ -1348,7 +1352,7 @@ async def admin_reset_all(
         role = await get_or_fetch_role(interaction.guild, row["team_role_id"])
         await role.delete()
 
-    interaction.followup.send("All things are now resetted", ephemeral=True)
+    await interaction.followup.send("All things are now resetted", ephemeral=True)
 
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
@@ -1424,11 +1428,11 @@ async def admin_fill_team_with_user(
     if player["is_substitute"]:
         substitute_role = discord.utils.get(interaction.guild.roles, name=SUBSTITUTE_ROLE_NAME)
         if substitute_role is None: return
-        await interaction.user.remove_roles(await get_or_fetch_role(interaction.guild, substitute_role))
+        await user.remove_roles(await get_or_fetch_role(interaction.guild, substitute_role))
 
 
     if output != "":
-        interaction.followup.send(output, ephemeral=True)
+        await interaction.followup.send(output, ephemeral=True)
         return
 
     await interaction.followup.send(
@@ -1452,7 +1456,7 @@ async def admin_start_captain_vote(
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"""--sql
+                """--sql
                 UPDATE teams
                 SET captain_id = NULL
                 WHERE team_channel_id = %s
@@ -1481,16 +1485,6 @@ async def captain_start_team_captain_vote(
     for _ in (True,):
         with pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    f"""--sql
-                    UPDATE teams
-                    SET captain_id = NULL
-                    WHERE captain_id = %s
-                    """,
-                    (interaction.user.id,)
-                )
-                if cur.rowcount == 0:
-                    break
 
                 cur.execute(
                     f"""--sql
@@ -1502,12 +1496,23 @@ async def captain_start_team_captain_vote(
 
                 row = cur.fetchone()
                 channelID = row["team_channel_id"]
+
+                cur.execute(
+                    """--sql
+                    UPDATE teams
+                    SET captain_id = NULL
+                    WHERE captain_id = %s
+                    """,
+                    (interaction.user.id,)
+                )
+                if cur.rowcount == 0:
+                    break
     
     if channelID == None:
         await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
 
     await interaction.response.send_message("The poll will now be created", ephemeral=True)
-    await start_captain_vote()
+    await start_captain_vote(channelID)
 
 # ============================================================
 # UI Components
@@ -1592,7 +1597,6 @@ class AcceptFriendshipInviteView(
             )
             return
 
-        discord_thread_id
         with pool.connection() as conn:
             with conn.cursor() as cur:
                 discord_thread_id, _, _ = queries.remove_friend_code_and_thread(
@@ -1857,7 +1861,7 @@ class TeamView(discord.ui.View):
 # ============================================================
 
 def parse_duration(duration: str) -> int:
-    matches = re.findall(r"(\d+)([dhms])", duration.lower())
+    matches = re.findall(r"^(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$", duration.lower())
 
     if not matches:
         raise ValueError("Invalid duration.")
@@ -2360,7 +2364,7 @@ async def handle_finished_poll(
     if channel is None:
         return
 
-    message = await get_or_fetch_message(guild, poll_discord_id)
+    message = await get_or_fetch_message(channel.guild, poll_discord_id)
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -2409,7 +2413,7 @@ async def handle_finished_poll(
                 )
                 row_count = cur.rowcount
 
-        if cur.rowcount == 0:
+        if row_count == 0:
             await member.remove_roles(captain_role)
             continue
 
@@ -2436,7 +2440,7 @@ def insertTeamsIntoTournamentTable():
                     """
                 )
                 row = cur.fetchone()
-                tournamentURL = row["tournament_id"]
+                tournamentURL = row["tournament_url"]
 
                 cur.execute(
                     """--sql
