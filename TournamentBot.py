@@ -774,7 +774,7 @@ async def tournament_link(
                 """
                 )
                 row = cur.fetchone()
-    await interaction.response.send_message(f"https://challonge.com/{row['tournament_url']}")
+    await interaction.response.send_message(f"https://challonge.com/{row["tournament_url"]}")
 
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
