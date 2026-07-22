@@ -2257,7 +2257,7 @@ async def start_captain_vote(
                     """,
                     (team_channel_id,)
                 )
-                if cur.fetchone()["poll_id"] is not None:
+                if cur.fetchone() is not None:
                     return "A poll already exists."
 
 
