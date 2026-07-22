@@ -1234,9 +1234,12 @@ async def admin_delete_team(
         await interaction.response.send_message("There was no team found with the specific thread", ephemeral=True)
         return
 
-    role = await get_or_fetch_role(interaction.guild, row["team_role_id"])
-    if role is None: return
-    await role.delete()
+    try:
+        role = await get_or_fetch_role(interaction.guild, row["team_role_id"])
+        if role is not None:
+            await role.delete()
+    except: 
+        print(row["team_role_id"])
 
 
     with pool.connection() as conn:
@@ -1331,16 +1334,6 @@ async def admin_reset_all(
         )
 
         await new_role.edit(position=role_data["position"])
-
-    substitute_role = discord.utils.get(interaction.guild.roles, name=SUBSTITUTE_ROLE_NAME)
-    if substitute_role is not None:
-        for member in substitute_role.members:
-            await member.remove_roles(substitute_role)
-    
-    captain_role = discord.utils.get(interaction.guild.roles, name=CAPTAIN_ROLE_NAME)
-    if captain_role is not None:
-        for member in captain_role.members:
-            await member.remove_roles(captain_role)
 
     rows : list[DictRow]
     with pool.connection() as conn:
