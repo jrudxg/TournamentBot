@@ -1478,7 +1478,6 @@ async def admin_start_captain_vote(
     row_count = 0
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            row_count = cur.rowcount
 
             if row_count > 0:
                 cur.execute(
@@ -1490,7 +1489,7 @@ async def admin_start_captain_vote(
                 )
                 row = cur.fetchone()
 
-    if row_count == 0:
+    if row is not None:
         await interaction.response.send_message("There was no team found that uses the mentioned role.", ephemeral=True)
         return
 
@@ -1521,14 +1520,13 @@ async def captain_start_team_captain_vote(
                 )
 
                 row = cur.fetchone()
-                channel_id = row["team_channel_id"]
                 if cur.rowcount == 0:
                     break
     
-    if channel_id == None:
+    if channel_id is None:
         await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
 
-    await interaction.response.send_message(await start_captain_vote(channel_id), ephemeral=True)
+    await interaction.response.send_message(await start_captain_vote(row["team_channel_id"]), ephemeral=True)
 
 # ============================================================
 # UI Components
