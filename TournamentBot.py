@@ -2287,7 +2287,7 @@ async def start_captain_vote(
                 if row is None: return
 
                 if (row["team_role_id"] is not None):
-                    pollMessage = f"<@&{row['team_role_id']}> who do you want to have as your captain?"
+                    pollMessage = f"Who do you want to have as your captain?"
 
                 if row["captain_id"] is not None:
                     cur.execute(
@@ -2327,7 +2327,11 @@ async def start_captain_vote(
         for memberName, memberID in zip(filteredPlayerNames, filteredPlayerIDs)
     }
 
-    message = await thread.send(poll=poll)
+    message = await thread.send(
+        content=f"<@&{row['team_role_id']}>",
+        poll=poll,
+        allowed_mentions=discord.AllowedMentions(roles=True)
+    )
     with pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
