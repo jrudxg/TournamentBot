@@ -61,6 +61,7 @@ pool = ConnectionPool(
     max_size=5,
     kwargs={"row_factory": dict_row}
 )
+scheduled_tasks = []
 
 keep_alive()
 
@@ -154,11 +155,14 @@ async def on_ready():
     teamTime : datetime = row["team_creation_time"]
     captainTime : datetime = row["captain_vote_time"]
     tournamentTime : datetime = row["tournament_start_time"]
-    for task in asyncio.all_tasks():
+    for task in scheduled_tasks:
         task.cancel()
-    asyncio.create_task(team_creation_run_at(teamTime))
-    asyncio.create_task(captain_vote_run_at(captainTime))
-    asyncio.create_task(start_tournament(tournamentTime))
+
+    scheduled_tasks.clear()
+
+    scheduled_tasks.append(asyncio.create_task(team_creation_run_at(teamTime)))
+    scheduled_tasks.append(asyncio.create_task(captain_vote_run_at(captainTime)))
+    scheduled_tasks.append(asyncio.create_task(start_tournament(tournamentTime)))
 
     bot.add_dynamic_items(AcceptFriendshipInviteView)
 
@@ -2339,7 +2343,7 @@ def load_captain_polls():
             polls = cur.fetchall()
 
     for poll in polls:
-        asyncio.create_task(wait_for_poll_finish(poll))
+        scheduled_tasks.append(asyncio.create_task(wait_for_poll_finish(poll)))
                     
 async def wait_for_poll_finish(poll : DictRow):
 
