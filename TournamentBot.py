@@ -59,8 +59,14 @@ pool = ConnectionPool(
     DATABASE_URL,
     min_size=1,
     max_size=5,
+    max_lifetime=1800,
+    max_idle=300,
+    check=ConnectionPool.check_connection,
     kwargs={"row_factory": dict_row}
 )
+
+pool.wait()
+
 scheduled_tasks = []
 
 keep_alive()
