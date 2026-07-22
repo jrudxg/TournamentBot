@@ -647,7 +647,7 @@ async def send_friendship_invite(interaction: discord.Interaction, user: discord
                     )
                     break
     if output != "":
-        interaction.response.send_message(output, ephemeral=True)
+        await interaction.response.send_message(output, ephemeral=True)
         return
 
     try:
@@ -1077,7 +1077,7 @@ async def admin_set_team_picture(
     if row_count == 0:
         await interaction.response.send_message("No team has been found that uses this thread.", ephemeral=True)
         return
-    await interaction.response.send_message("The team picture has been changed. Please check with /team_profile if the image works correctly.")
+    await interaction.response.send_message("The team picture has been changed. Please check with /team_profile if the image works correctly.", ephemeral=True)
 
 
 @has_captain_role()
