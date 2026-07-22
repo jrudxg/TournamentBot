@@ -361,7 +361,7 @@ async def sign_out(interaction: discord.Interaction):
 
     substitute_role = discord.utils.get(interaction.guild.roles, name=SUBSTITUTE_ROLE_NAME)
     if substitute_role is None: return
-    await interaction.user.remove_roles(await get_or_fetch_role(interaction.guild, substitute_role))
+    await interaction.user.remove_roles(substitute_role)
     await interaction.response.send_message("You are now signed out.", ephemeral=True)
 
 
@@ -731,7 +731,7 @@ async def leave_friendship(interaction: discord.Interaction):
                 )
 
     if output != "":
-        interaction.response.send_message(output, ephemeral=True)
+        await interaction.response.send_message(output, ephemeral=True)
         return
     
     if discord_thread_id is None:
@@ -1218,12 +1218,19 @@ async def admin_delete_team(
 
                 cur.execute(
                     """--sql
-                    SELECT team_role_id FROM teams
+                    SELECT team_role_id, captain_id FROM teams
                     WHERE team_channel_id = %s
                     """,
                     (thread.id,)
                 )
                 row = cur.fetchone()
+
+    if row["captain_id"] is not None:
+        try:
+            user = await get_or_fetch_member(interaction.guild, row["captain_id"])
+            captain_role = discord.utils.get(interaction.guild.roles, name=CAPTAIN_ROLE_NAME)
+            user.remove_roles(captain_role)
+        except: pass
 
     if tournament_started:
         await interaction.response.send_message("The tournament already started.", ephemeral=True)
@@ -1234,11 +1241,11 @@ async def admin_delete_team(
         return
 
     try:
-        role = await get_or_fetch_role(interaction.guild, row["team_role_id"])
-        if role is not None:
-            await role.delete()
+        team_role = await get_or_fetch_role(interaction.guild, row["team_role_id"])
+        if team_role is not None:
+            await team_role.delete()
     except: 
-        print(row["team_role_id"])
+        pass
 
 
     with pool.connection() as conn:
@@ -1427,7 +1434,7 @@ async def admin_fill_team_with_user(
     if player["is_substitute"]:
         substitute_role = discord.utils.get(interaction.guild.roles, name=SUBSTITUTE_ROLE_NAME)
         if substitute_role is None: return
-        await user.remove_roles(await get_or_fetch_role(interaction.guild, substitute_role))
+        await user.remove_roles(substitute_role)
 
 
     if output != "":
@@ -1582,7 +1589,8 @@ class AcceptFriendshipInviteView(
                     queries.set_in_players(cur, 0, "friend_code", self.friend_code, player)
 
         if output != "":
-            interaction.response.send_message(output, ephemeral=True)
+            await interaction.response.send_message(output, ephemeral=True)
+            return
 
         await interaction.channel.edit(name="friend group")
         await interaction.response.edit_message(view=None)
