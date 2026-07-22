@@ -1140,14 +1140,14 @@ async def captain_set_teamname(
         return
 
     output = "The team name has been changed."
-    channelID : int | None = None
-    roleID    : int | None = None
+    channel_id : int | None = None
+    role_id    : int | None = None
     for _ in (True,):
         with pool.connection() as conn:
             with conn.cursor() as cur:
                 if queries.check_if_tournament_started(cur):
                     output = "The tournament already started."
-                    roleID = 0
+                    role_id = 0
                     break
 
                 try: 
@@ -1176,17 +1176,17 @@ async def captain_set_teamname(
                 )
                 row = cur.fetchone()
 
-                channelID : int = row["team_channel_id"]
+                channel_id : int = row["team_channel_id"]
 
-                roleID : int = row["team_role_id"]
-                if roleID is None:
+                role_id : int = row["team_role_id"]
+                if role_id is None:
                     output = "There was no role found that is linked to the mentioned thread."
 
-    if channelID is None or roleID is None:
+    if channel_id is None or role_id is None:
         await interaction.response.send_message(output, ephemeral=True)
         return
 
-    thread = await get_or_fetch_channel(channelID)
+    thread = await get_or_fetch_channel(channel_id)
     await thread.edit(name=new_team_name)
 
     role = await get_or_fetch_role(interaction.guild, roleID)
@@ -1475,7 +1475,6 @@ async def admin_start_captain_vote(
     interaction: discord.Interaction,
     team_role: discord.Role
 ):
-    
     row_count = 0
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -1515,7 +1514,7 @@ async def admin_start_captain_vote(
 async def captain_start_team_captain_vote(
     interaction: discord.Interaction,
 ):
-    channelID : int | None = None
+    channel_id : int | None = None
 
     for _ in (True,):
         with pool.connection() as conn:
@@ -1530,7 +1529,7 @@ async def captain_start_team_captain_vote(
                 )
 
                 row = cur.fetchone()
-                channelID = row["team_channel_id"]
+                channel_id = row["team_channel_id"]
 
                 cur.execute(
                     """--sql
@@ -1543,10 +1542,10 @@ async def captain_start_team_captain_vote(
                 if cur.rowcount == 0:
                     break
     
-    if channelID == None:
+    if channel_id == None:
         await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
 
-    await interaction.response.send_message(await start_captain_vote(channelID), ephemeral=True)
+    await interaction.response.send_message(await start_captain_vote(channel_id), ephemeral=True)
 
 # ============================================================
 # UI Components
@@ -2281,7 +2280,7 @@ async def start_captain_vote(
     
     thread = await get_or_fetch_channel(team_channel_id)
     if not isinstance(thread, discord.Thread):
-        return
+        return "No thread exists for the team"
 
     playerNames = list(["","","","",""])
     playerIDs   = list([0,0,0,0,0])
@@ -2327,9 +2326,10 @@ async def start_captain_vote(
                         """,
                         (row["captain_id"],)
                     )
-    member = await get_or_fetch_member(thread.guild, row["captain_id"])
-    captain_role = discord.utils.get(thread.guild.roles, name=CAPTAIN_ROLE_NAME)
-    member.remove_roles(captain_role)
+    if row["captain_id"] is not None:
+        member = await get_or_fetch_member(thread.guild, row["captain_id"])
+        captain_role = discord.utils.get(thread.guild.roles, name=CAPTAIN_ROLE_NAME)
+        member.remove_roles(captain_role)
     for i, column in enumerate(TEAM_PLAYER_COLUMNS):
         id = row[column]
         if id == 0: continue
