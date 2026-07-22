@@ -1486,7 +1486,7 @@ async def admin_start_captain_vote(
             )
             row = cur.fetchone()
 
-    if row is not None:
+    if row is None:
         await interaction.response.send_message("There was no team found that uses the mentioned role.", ephemeral=True)
         return
 
