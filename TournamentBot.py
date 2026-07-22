@@ -1487,7 +1487,7 @@ async def admin_start_captain_vote(
                 """,
                 (team_role.id,)
             )
-            row_count = cur.row_count
+            row_count = cur.rowcount
 
             if row_count > 0:
                 cur.execute(
@@ -1516,6 +1516,12 @@ async def captain_start_team_captain_vote(
     interaction: discord.Interaction,
 ):
     channelID : int | None = None
+
+    captain_role = discord.utils.get(interaction.guild.roles, name=CAPTAIN_ROLE_NAME)
+
+
+    interaction.user.remove_roles(captain_role)
+
     for _ in (True,):
         with pool.connection() as conn:
             with conn.cursor() as cur:
