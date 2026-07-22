@@ -1478,14 +1478,6 @@ async def admin_start_captain_vote(
     row_count = 0
     with pool.connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """--sql
-                UPDATE teams
-                SET captain_id = NULL
-                WHERE team_role_id = %s
-                """,
-                (team_role.id,)
-            )
             row_count = cur.rowcount
 
             if row_count > 0:
@@ -1530,15 +1522,6 @@ async def captain_start_team_captain_vote(
 
                 row = cur.fetchone()
                 channel_id = row["team_channel_id"]
-
-                cur.execute(
-                    """--sql
-                    UPDATE teams
-                    SET captain_id = NULL
-                    WHERE captain_id = %s
-                    """,
-                    (interaction.user.id,)
-                )
                 if cur.rowcount == 0:
                     break
     
@@ -2046,15 +2029,6 @@ async def start_captain_vote_everywhere():
 
     all_threads = team_channel.threads
 
-    with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""--sql
-                UPDATE teams
-                SET captain_id = NULL
-                """
-            )
-
     for thread in all_threads:
         await start_captain_vote(thread.id)
 
@@ -2217,7 +2191,7 @@ async def remove_from_team(
                 """--sql
                 SELECT * FROM teams
                 WHERE %s IN (
-                    captain_id, player1_id, player2_id, player3_id, player4_id, player5_id
+                    player1_id, player2_id, player3_id, player4_id, player5_id
                 )
                 """,
                 (user_id,),
@@ -2248,26 +2222,11 @@ async def remove_from_team(
         member = await guild.fetch_member(user_id)
         await thread.remove_user(await get_or_fetch_member(guild, user_id))
         teamRole = await get_or_fetch_role(guild, row["team_role_id"])
-        captain_role = discord.utils.get(guild.roles, name=CAPTAIN_ROLE_NAME)
-
         await member.remove_roles(teamRole)
-        if (captain_role is not None): 
-            await member.remove_roles(captain_role)
     except discord.NotFound:
         pass
 
     if row["captain_id"] == user_id:
-        with pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """--sql
-                    UPDATE teams
-                    SET captain_id = NULL
-                    WHERE captain_id = %s
-                    """,
-                    (user_id,)
-                )
-        
         await thread.send(f"<@&{row['team_role_id']}> there is currently no captain")
         await start_captain_vote(thread.id)
 
@@ -2298,7 +2257,7 @@ async def start_captain_vote(
                     """,
                     (team_channel_id,)
                 )
-                if cur.fetchone()["poll_id"] is None:
+                if cur.fetchone()["poll_id"] is not None:
                     return "A poll already exists."
 
 
@@ -2318,15 +2277,16 @@ async def start_captain_vote(
                     pollMessage = f"Who do you want to have as your captain?"
 
                 if row["captain_id"] is not None:
+                    captain_id = row["captain_id"]
                     cur.execute(
                         """--sql
                         UPDATE teams
                         SET captain_id = NULL
                         WHERE captain_id = %s
                         """,
-                        (row["captain_id"],)
+                        (captain_id,)
                     )
-    if row["captain_id"] is not None:
+    if captain_id is not None:
         member = await get_or_fetch_member(thread.guild, row["captain_id"])
         captain_role = discord.utils.get(thread.guild.roles, name=CAPTAIN_ROLE_NAME)
         member.remove_roles(captain_role)
