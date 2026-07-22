@@ -1475,19 +1475,16 @@ async def admin_start_captain_vote(
     interaction: discord.Interaction,
     team_role: discord.Role
 ):
-    row_count = 0
     with pool.connection() as conn:
         with conn.cursor() as cur:
-
-            if row_count > 0:
-                cur.execute(
-                    """--sql
-                    SELECT team_channel_id FROM teams
-                    WHERE team_role_id = %s 
-                    """,
-                    (team_role.id,)  
-                )
-                row = cur.fetchone()
+            cur.execute(
+                """--sql
+                SELECT team_channel_id FROM teams
+                WHERE team_role_id = %s 
+                """,
+                (team_role.id,)  
+            )
+            row = cur.fetchone()
 
     if row is not None:
         await interaction.response.send_message("There was no team found that uses the mentioned role.", ephemeral=True)
@@ -1520,10 +1517,8 @@ async def captain_start_team_captain_vote(
                 )
 
                 row = cur.fetchone()
-                if cur.rowcount == 0:
-                    break
     
-    if channel_id is None:
+    if row is None:
         await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
 
     await interaction.response.send_message(await start_captain_vote(row["team_channel_id"]), ephemeral=True)
@@ -2246,6 +2241,7 @@ async def start_captain_vote(
     pollMessage = "Who do you want to have as your captain?"
 
     row : DictRow
+    captain_id : int | None = None
     with pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -2287,7 +2283,7 @@ async def start_captain_vote(
     if captain_id is not None:
         member = await get_or_fetch_member(thread.guild, row["captain_id"])
         captain_role = discord.utils.get(thread.guild.roles, name=CAPTAIN_ROLE_NAME)
-        member.remove_roles(captain_role)
+        await member.remove_roles(captain_role)
     for i, column in enumerate(TEAM_PLAYER_COLUMNS):
         id = row[column]
         if id == 0: continue
