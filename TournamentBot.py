@@ -2465,7 +2465,7 @@ def insertTeamsIntoTournamentTable():
 
                 cur.execute(
                     """--sql
-                    SELECT tournament_id FROM key_value
+                    SELECT tournament_url FROM key_value
                     """
                 )
                 row = cur.fetchone()
