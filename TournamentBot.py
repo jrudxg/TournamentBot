@@ -2314,7 +2314,7 @@ async def start_captain_vote(
                 if row["team_id"] is None: return "No team could be found with this thread."
 
                 if (row["team_role_id"] is not None):
-                    message = f"<@&{row['team_role_id']}>",
+                    message = f"<@&{row['team_role_id']}>"
                     pollMessage = f"Who do you want to have as your captain?"
 
                 if row["captain_id"] is not None:
