@@ -15,6 +15,7 @@ import pycountry
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
+from psycopg.errors import UniqueViolation
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
 
@@ -1010,15 +1011,19 @@ async def admin_set_teamname_from_team(
                 if queries.check_if_tournament_started(cur):
                     output = "The tournament already started."
                     break
-
-                cur.execute(
-                    """--sql
-                    UPDATE teams
-                    SET team_name = %s
-                    WHERE team_role_id = %s
-                    """,
-                    (new_team_name, team_role.id)
-                )
+                try:
+                    cur.execute(
+                        """--sql
+                        UPDATE teams
+                        SET team_name = %s
+                        WHERE team_role_id = %s
+                        """,
+                        (new_team_name, team_role.id)
+                    )
+                except UniqueViolation:
+                        output = "The name already exsts for another team."
+                        break
+                
                 if cur.rowcount == 0: 
                     output = "There was no team found that uses the mentioned role."
                     break
@@ -1034,7 +1039,7 @@ async def admin_set_teamname_from_team(
                 thread_id = row["team_channel_id"]
                 if thread_id is None:
                     output = "There was no thread found that is linked to the mentioned role."
-
+    
     
     if thread_id is None:
         await interaction.response.send_message(output, ephemeral=True)
@@ -1145,14 +1150,19 @@ async def captain_set_teamname(
                     roleID = 0
                     break
 
-                cur.execute(
-                    f"""--sql
-                    UPDATE teams
-                    SET team_name = %s
-                    WHERE captain_id = %s
-                    """,
-                    (new_team_name, interaction.user.id)
-                )
+                try: 
+                    cur.execute(
+                        f"""--sql
+                        UPDATE teams
+                        SET team_name = %s
+                        WHERE captain_id = %s
+                        """,
+                        (new_team_name, interaction.user.id)
+                    )
+                except UniqueViolation:
+                    output = "The name already exsts for another team."
+                    break
+
                 if cur.rowcount == 0:
                     output = "There was no team found that uses the mentioned thread."
                     break
