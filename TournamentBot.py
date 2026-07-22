@@ -21,7 +21,7 @@ from psycopg_pool import ConnectionPool
 import json
 import asyncio
 import queries
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from enums import CreateTeamsOutput, QueryErrors, RemoveFromTeamOutput
 from collections import defaultdict
 from keep_alive import keep_alive
@@ -2316,7 +2316,7 @@ async def start_captain_vote(
 
     poll = discord.Poll(
         question = pollMessage,
-        duration = datetime.timedelta(hours=24)
+        duration = timedelta(hours=24)
     ) 
 
     for playerName in filteredPlayerNames:
