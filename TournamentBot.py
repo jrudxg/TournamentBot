@@ -879,8 +879,10 @@ async def admin_select_players(
         inline=False
     )
 
+    amountOfWinners = len(winners)
+
     result.set_footer(
-        text=f"Selected {len(winners)} out of {len(participants)} participants."
+        text=f"Selected {amountOfWinners} out of {len(participants)} participants."
     )
 
     await message.reply(
@@ -888,7 +890,7 @@ async def admin_select_players(
         embed=result,
         allowed_mentions=discord.AllowedMentions(users=True)
     )
-    amountOfWinners = len(winners)
+    
     if (amountOfWinners < members):
         await message.channel.send(f"There were not enough participants to fill every spot. There are still {members - amountOfWinners} spots that need to be filled.")
 
@@ -1244,7 +1246,7 @@ async def admin_delete_team(
                 DELETE FROM teams
                 WHERE team_channel_id = %s
                 """,
-                (thread.id)
+                (thread.id,)
             )
 
             cur.execute(
@@ -1252,7 +1254,7 @@ async def admin_delete_team(
                 DELETE FROM captain_poll_finish_times
                 WHERE channel_discord_id = %s
                 """,
-                (thread.id) 
+                (thread.id,) 
             )
             
     await thread.delete()
