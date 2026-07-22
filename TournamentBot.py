@@ -1503,8 +1503,8 @@ async def admin_start_captain_vote(
         await interaction.response.send_message("There was no team found that uses the mentioned role.", ephemeral=True)
         return
 
-    await interaction.response.send_message("The poll will now be created", ephemeral=True)
-    await start_captain_vote(row["team_channel_id"])
+    await interaction.response.send_message(await start_captain_vote(row["team_channel_id"]), ephemeral=True)
+    
 
 @has_captain_role()
 @bot.tree.command(
@@ -1516,11 +1516,6 @@ async def captain_start_team_captain_vote(
     interaction: discord.Interaction,
 ):
     channelID : int | None = None
-
-    captain_role = discord.utils.get(interaction.guild.roles, name=CAPTAIN_ROLE_NAME)
-
-
-    interaction.user.remove_roles(captain_role)
 
     for _ in (True,):
         with pool.connection() as conn:
@@ -1551,8 +1546,7 @@ async def captain_start_team_captain_vote(
     if channelID == None:
         await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
 
-    await interaction.response.send_message("The poll will now be created", ephemeral=True)
-    await start_captain_vote(channelID)
+    await interaction.response.send_message(await start_captain_vote(channelID), ephemeral=True)
 
 # ============================================================
 # UI Components
@@ -2292,11 +2286,23 @@ async def start_captain_vote(
     playerNames = list(["","","","",""])
     playerIDs   = list([0,0,0,0,0])
 
-    pollMessage = "@here who do you want to have as your captain?"
+    message = "@here"
+    pollMessage = "Who do you want to have as your captain?"
 
     row : DictRow
     with pool.connection() as conn:
             with conn.cursor() as cur:
+                cur.execute(
+                    """--sql
+                    SELECT poll_id FROM captain_poll_finish_times
+                    WHERE channel_discord_id = %s
+                    """,
+                    (team_channel_id,)
+                )
+                if cur.fetchone()["poll_id"] is None:
+                    return "A poll already exists."
+
+
                 cur.execute(
                     """--sql
                     SELECT * FROM teams
@@ -2306,9 +2312,10 @@ async def start_captain_vote(
                 )
                 row = cur.fetchone()
 
-                if row is None: return
+                if row["team_id"] is None: return "No team could be found with this thread."
 
                 if (row["team_role_id"] is not None):
+                    message = f"<@&{row['team_role_id']}>",
                     pollMessage = f"Who do you want to have as your captain?"
 
                 if row["captain_id"] is not None:
@@ -2320,7 +2327,9 @@ async def start_captain_vote(
                         """,
                         (row["captain_id"],)
                     )
-                
+    member = await get_or_fetch_member(thread.guild, row["captain_id"])
+    captain_role = discord.utils.get(thread.guild.roles, name=CAPTAIN_ROLE_NAME)
+    member.remove_roles(captain_role)
     for i, column in enumerate(TEAM_PLAYER_COLUMNS):
         id = row[column]
         if id == 0: continue
@@ -2350,7 +2359,7 @@ async def start_captain_vote(
     }
 
     message = await thread.send(
-        content=f"<@&{row['team_role_id']}>",
+        content=message,
         poll=poll,
         allowed_mentions=discord.AllowedMentions(roles=True)
     )
@@ -2368,6 +2377,7 @@ async def start_captain_vote(
                 """,
                 (poll.expires_at, message.id, thread.id, json.dumps(players, skipkeys=True))
             )
+    return "The poll has successfully been created"
 
 def load_captain_polls():
 
