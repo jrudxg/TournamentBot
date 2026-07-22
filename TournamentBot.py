@@ -901,7 +901,7 @@ async def admin_select_players(
     guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
 async def admin_start_create_teams(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     _, message_text = await start_creating_teams()
     await interaction.followup.send(message_text)
 
@@ -912,14 +912,14 @@ async def admin_start_create_teams(interaction: discord.Interaction):
     guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
 async def leave_team(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     error = await remove_from_team(interaction.user.id)
 
-    if error is RemoveFromTeamOutput.TEAMS_NOT_CREATED:
+    if error == RemoveFromTeamOutput.TEAMS_NOT_CREATED:
         await interaction.followup.send("The teams have not been created yet.", ephemeral=True)
-    elif error is RemoveFromTeamOutput.PLAYER_NOT_FOUND:
+    elif error == RemoveFromTeamOutput.PLAYER_NOT_FOUND:
         await interaction.followup.send("You are not part of a team.", ephemeral=True)
-    elif error is RemoveFromTeamOutput.NO_ERROR:
+    elif error == RemoveFromTeamOutput.NO_ERROR:
         await interaction.followup.send("You successfully left your team. User /sign_out to sign out or /change_substitute to become a substitute", ephemeral=True)
     else:
         await interaction.followup.send("An unknown error has been found.")
@@ -932,7 +932,7 @@ async def leave_team(interaction: discord.Interaction):
 )
 async def admin_set_captain(
     interaction: discord.Interaction,
-    team_thread: discord.Thread,
+    team_role: discord.Role,
     new_captain: discord.Member
 ):
     
@@ -946,14 +946,14 @@ async def admin_set_captain(
                 cur.execute(
                     """--sql
                     SELECT * FROM teams
-                    WHERE team_channel_id = %s
+                    WHERE team_role_id = %s
                     """,
-                    (team_thread.id,),
+                    (team_role.id,),
                 )
                 row = cur.fetchone()
                 
     if row is None:
-        await interaction.response.send_message("No team with this thread exists", ephemeral=True)
+        await interaction.response.send_message("No team with this role exists", ephemeral=True)
         return
 
     if (row["captain_id"]) is not None:
@@ -962,18 +962,21 @@ async def admin_set_captain(
         except:
             pass
 
+    team_channel_id = row["team_channel_id"]
+    team_thread = await get_or_fetch_channel(team_channel_id)
+
     with pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """--sql
                     UPDATE teams
                     SET captain_id = %s
-                    WHERE team_channel_id = %s
+                    WHERE team_role_id = %s
                     """,
-                    (new_captain.id, team_thread.id)
+                    (new_captain.id, team_role.id)
                 )
 
-    await team_thread.send(f"<@&{row['team_role_id']}> {new_captain.mention} is now your new team captain")
+    await team_thread.send(f"{team_role.mention} {new_captain.mention} is now your new team captain")
             
     await new_captain.add_roles(captain_role)
     await interaction.response.send_message("New captain has been set", ephemeral=True)
@@ -986,7 +989,7 @@ async def admin_set_captain(
 )
 async def admin_set_teamname_from_team(
     interaction: discord.Interaction,
-    team_thread: discord.Thread,
+    team_role: discord.Role,
     new_team_name: str
 ):
     if len(new_team_name) < 1 or len(new_team_name) > 32:
@@ -994,7 +997,7 @@ async def admin_set_teamname_from_team(
         return
 
     output = "The team name has been changed."
-    roleID : int | None = None
+    thread_id : int | None = None
     for _ in (True,):
         with pool.connection() as conn:
             with conn.cursor() as cur:
@@ -1006,35 +1009,35 @@ async def admin_set_teamname_from_team(
                     """--sql
                     UPDATE teams
                     SET team_name = %s
-                    WHERE team_channel_id = %s
+                    WHERE team_role_id = %s
                     """,
-                    (new_team_name, team_thread.id)
+                    (new_team_name, team_role.id)
                 )
                 if cur.rowcount == 0: 
-                    output = "There was no team found that uses the mentioned thread."
+                    output = "There was no team found that uses the mentioned role."
                     break
 
                 cur.execute(
                     """--sql
-                    SELECT team_role_id FROM teams
-                    WHERE team_channel_id = %s
+                    SELECT team_channel_id FROM teams
+                    WHERE team_role_id = %s
                     """,
-                    (team_thread.id,)
+                    (team_role.id,)
                 )
                 row = cur.fetchone()
-                roleID = row["team_role_id"]
-                if roleID is None:
-                    output = "There was no role found that is linked to the mentioned thread."
+                thread_id = row["team_channel_id"]
+                if thread_id is None:
+                    output = "There was no thread found that is linked to the mentioned role."
 
     
-    if roleID is None:
+    if thread_id is None:
         await interaction.response.send_message(output, ephemeral=True)
         return
     
+    team_thread = await get_or_fetch_channel(thread_id)
     await team_thread.edit(name=new_team_name)
     
-    role = await get_or_fetch_role(interaction.guild, roleID)
-    await role.edit(name=new_team_name)
+    await team_role.edit(name=new_team_name)
 
     await interaction.response.send_message(output, ephemeral=True)
 
@@ -1061,7 +1064,7 @@ def has_captain_role():
 )
 async def admin_set_team_picture(
     interaction: discord.Interaction,
-    team_thread: discord.Thread,
+    team_role: discord.Role,
     team_picture: str
 ):
     with pool.connection() as conn:
@@ -1070,14 +1073,14 @@ async def admin_set_team_picture(
                     """--sql
                     UPDATE teams
                     SET team_picture = %s
-                    WHERE team_channel_id = %s
+                    WHERE team_role_id = %s
                     """,
-                    (team_picture, team_thread.id)
+                    (team_picture, team_role.id)
                 )
                 row_count = cur.rowcount
 
     if row_count == 0:
-        await interaction.response.send_message("No team has been found that uses this thread.", ephemeral=True)
+        await interaction.response.send_message("No team has been found that uses this role.", ephemeral=True)
         return
     await interaction.response.send_message("The team picture has been changed. Please check with /team_profile if the image works correctly.", ephemeral=True)
 
@@ -1182,19 +1185,19 @@ async def captain_set_teamname(
     guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
 async def admin_remove_user_from_team(interaction: discord.Interaction, user: discord.User):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     error = await remove_from_team(user.id)
 
-    if error is RemoveFromTeamOutput.TEAMS_NOT_CREATED:
+    if error == RemoveFromTeamOutput.TEAMS_NOT_CREATED:
         await interaction.followup.send("The teams have not been created yet.", ephemeral=True)
-    elif error is RemoveFromTeamOutput.PLAYER_NOT_FOUND:
+    elif error == RemoveFromTeamOutput.PLAYER_NOT_FOUND:
         await interaction.followup.send("The player is not part of any team.", ephemeral=True)
-    elif error is RemoveFromTeamOutput.NO_ERROR:
+    elif error == RemoveFromTeamOutput.NO_ERROR:
         await interaction.followup.send(
             "You successfully removed the player from the team.", ephemeral=True
         )
     else:
-        await interaction.followup.send("An unknown error has been found.")
+        await interaction.followup.send("An unknown error has been found.", ephemeral=True)
 
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
@@ -1204,7 +1207,7 @@ async def admin_remove_user_from_team(interaction: discord.Interaction, user: di
 )
 async def admin_delete_team(
     interaction: discord.Interaction,
-    thread: discord.Thread
+    role: discord.Role
 ):
     tournament_started = False
 
@@ -1218,10 +1221,10 @@ async def admin_delete_team(
 
                 cur.execute(
                     """--sql
-                    SELECT team_role_id, captain_id FROM teams
-                    WHERE team_channel_id = %s
+                    SELECT team_channel_id, captain_id FROM teams
+                    WHERE team_role_id = %s
                     """,
-                    (thread.id,)
+                    (role.id,)
                 )
                 row = cur.fetchone()
 
@@ -1229,7 +1232,7 @@ async def admin_delete_team(
         try:
             user = await get_or_fetch_member(interaction.guild, row["captain_id"])
             captain_role = discord.utils.get(interaction.guild.roles, name=CAPTAIN_ROLE_NAME)
-            user.remove_roles(captain_role)
+            await user.remove_roles(captain_role)
         except: pass
 
     if tournament_started:
@@ -1237,16 +1240,15 @@ async def admin_delete_team(
         return
 
     if row is None:
-        await interaction.response.send_message("There was no team found with the specific thread", ephemeral=True)
+        await interaction.response.send_message("There was no team found with the specific role", ephemeral=True)
         return
 
     try:
-        team_role = await get_or_fetch_role(interaction.guild, row["team_role_id"])
-        if team_role is not None:
-            await team_role.delete()
+        await role.delete()
     except: 
         pass
 
+    thread_id = row["team_channel_id"]
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -1255,7 +1257,7 @@ async def admin_delete_team(
                 DELETE FROM teams
                 WHERE team_channel_id = %s
                 """,
-                (thread.id,)
+                (thread_id,)
             )
 
             cur.execute(
@@ -1263,11 +1265,11 @@ async def admin_delete_team(
                 DELETE FROM captain_poll_finish_times
                 WHERE channel_discord_id = %s
                 """,
-                (thread.id,) 
+                (thread_id,) 
             )
             
-    await thread.delete()
     await interaction.response.send_message("The team has successfully been deleted.", ephemeral=True)
+    await (await get_or_fetch_channel(thread_id)).delete()
 
 def is_server_owner():
     async def predicate(interaction: discord.Interaction) -> bool:
@@ -1287,7 +1289,7 @@ def is_server_owner():
 async def owner_insert_teams_in_tournament(
     interaction: discord.Interaction
 ):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     insertTeamsIntoTournamentTable()
     await interaction.followup.send("Teams have successfully been created", ephemeral=True)
 
@@ -1301,7 +1303,7 @@ async def owner_insert_teams_in_tournament(
 async def admin_reset_all(
     interaction: discord.Interaction,
 ):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
 
     friend_channel = discord.utils.get(interaction.guild.text_channels, name=FRIEND_CHANNEL_NAME)
     if friend_channel is not None: 
@@ -1369,9 +1371,9 @@ async def admin_reset_all(
 async def admin_fill_team_with_user(
     interaction: discord.Interaction,
     user: discord.User,
-    team_thread: discord.Thread,
+    team_role: discord.Role,
 ):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
 
     output = ""
     team_name = ""
@@ -1402,13 +1404,13 @@ async def admin_fill_team_with_user(
                 cur.execute(
                     """--sql
                     SELECT * FROM teams
-                    WHERE team_channel_id = %s
+                    WHERE team_role_id = %s
                     """,
-                    (team_thread.id,),
+                    (team_role.id,),
                 )
                 row = cur.fetchone()
                 if row is None:
-                    output = "No team with this thread exists"
+                    output = "No team with this role exists"
                     break
 
                 for column in TEAM_PLAYER_COLUMNS:
@@ -1419,9 +1421,9 @@ async def admin_fill_team_with_user(
                         f"""--sql
                         UPDATE teams
                         SET {column} = %s
-                        WHERE team_channel_id = %s
+                        WHERE team_role_id = %s
                         """,
-                        (user.id, team_thread.id),
+                        (user.id, team_role.id),
                     )
                     break
                 else:
@@ -1455,7 +1457,7 @@ async def admin_fill_team_with_user(
 )
 async def admin_start_captain_vote(
     interaction: discord.Interaction,
-    team_thread: discord.Thread
+    team_role: discord.Role
 ):
     
     row_count = 0
@@ -1465,18 +1467,28 @@ async def admin_start_captain_vote(
                 """--sql
                 UPDATE teams
                 SET captain_id = NULL
-                WHERE team_channel_id = %s
+                WHERE team_role_id = %s
                 """,
-                (team_thread.id,)
+                (team_role.id,)
             )
             row_count = cur.row_count
 
+            if row_count > 0:
+                cur.execute(
+                    """--sql
+                    SELECT team_channel_id FROM teams
+                    WHERE team_role_id = %s 
+                    """,
+                    (team_role.id,)  
+                )
+                row = cur.fetchone()
+
     if row_count == 0:
-        await interaction.response.send_message("There was no team found that uses the mentioned thread.", ephemeral=True)
+        await interaction.response.send_message("There was no team found that uses the mentioned role.", ephemeral=True)
         return
 
     await interaction.response.send_message("The poll will now be created", ephemeral=True)
-    await start_captain_vote(team_thread.id)
+    await start_captain_vote(row["team_channel_id"])
 
 @has_captain_role()
 @bot.tree.command(
@@ -2304,7 +2316,7 @@ async def start_captain_vote(
 
     poll = discord.Poll(
         question = pollMessage,
-        duration = 24
+        duration = datetime.timedelta(hours=24)
     ) 
 
     for playerName in filteredPlayerNames:
