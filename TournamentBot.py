@@ -1207,7 +1207,6 @@ async def admin_delete_team(
     thread: discord.Thread
 ):
     tournament_started = False
-    row : DictRow
 
     for _ in (True,):
         with pool.connection() as conn:
@@ -1261,6 +1260,7 @@ async def admin_delete_team(
             )
             
     await thread.delete()
+    await interaction.response.send_message("The team has successfully been deleted.", ephemeral=True)
 
 def is_server_owner():
     async def predicate(interaction: discord.Interaction) -> bool:
