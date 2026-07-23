@@ -53,9 +53,6 @@ TEAM_PLAYER_COLUMNS = (
     "player5_id",
 )
 
-# TODO: Needs to be replaced with team images
-# TEAM_PLACEHOLDER_IMAGE_URL = "https://i.imgur.com/XwQTC7b.png"
-
 pool = ConnectionPool(
     DATABASE_URL,
     min_size=1,
@@ -785,7 +782,7 @@ async def tournament_link(
                 """
                 )
                 row = cur.fetchone()
-    await interaction.response.send_message(f"https://challonge.com/{row["tournament_url"]}")
+    await interaction.response.send_message(f"https://challonge.com/{row["tournament_url"]}", ephemeral=True)
 
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
@@ -1067,6 +1064,17 @@ def has_captain_role():
     return app_commands.check(predicate)
 
 
+@app_commands.checks.has_permissions(administrator=True)
+@bot.tree.command(
+    name="test",
+    description="Sets the team picture",
+    guild=discord.Object(id=ALLOWED_GUILD_ID)
+)
+async def test(
+    interaction: discord.Interaction,
+    message: discord.Message
+):
+    interaction.response.send_message(message.content)
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
     name="admin_set_team_picture",
