@@ -2345,7 +2345,7 @@ async def start_captain_vote(
 
     poll = discord.Poll(
         question = pollMessage,
-        duration = timedelta(minutes=3)
+        duration = timedelta(hours=24)
     ) 
 
     for playerName in filteredPlayerNames:
@@ -2373,8 +2373,20 @@ async def start_captain_vote(
                 )
                 VALUES (%s, %s, %s, %s)
                 """,
-                (poll.expires_at, message.id, thread.id, json.dumps(players, skipkeys=True))
+                (datetime.now() + timedelta(minutes=3), message.id, thread.id, json.dumps(players, skipkeys=True)) # poll.expires_at print
             )
+
+            cur.execute(
+                """--sql
+                SELECT finish_time, poll_discord_id, channel_discord_id, players FROM captain_poll_finish_times
+                WHERE channel_discord_id = %s
+                """,
+                (thread.id,)
+            )
+            poll = cur.fetchone()
+
+    if poll is not None:
+        scheduled_tasks.append(asyncio.create_task(wait_for_poll_finish(poll)))
     return "The poll has successfully been created"
 
 def load_captain_polls():
