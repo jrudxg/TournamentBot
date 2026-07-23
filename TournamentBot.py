@@ -97,7 +97,7 @@ async def get_or_fetch_role(guild: discord.Guild, role_id: int) -> discord.Role 
 async def captain_vote_run_at(target_time: datetime):
     now = datetime.now(timezone.utc)
     #delay = (target_time - now).total_seconds()
-    delay = timedelta(minutes=1).total_seconds()
+    delay = timedelta(seconds=30).total_seconds()
 
     if delay > 0:
         await asyncio.sleep(delay)
@@ -106,8 +106,7 @@ async def captain_vote_run_at(target_time: datetime):
 
 async def team_creation_run_at(target_time: datetime):
     now = datetime.now(timezone.utc)
-    #delay = (target_time - now).total_seconds()
-    delay = timedelta(seconds=45).total_seconds()
+    delay = (target_time - now).total_seconds()
 
     if delay > 0:
         await asyncio.sleep(delay)
