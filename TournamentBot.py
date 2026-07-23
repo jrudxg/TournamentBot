@@ -1721,7 +1721,7 @@ async def build_team_profile_embeds(
         message = await picture_channel.fetch_message(team_row["team_picture_message_id"])
         if message.attachments:
             url = message.attachments[0].url
-            header.set_thumbnail(url)
+            header.set_thumbnail(url=url)
 
     embeds = [header]
 
