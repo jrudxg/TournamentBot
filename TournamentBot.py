@@ -2305,9 +2305,12 @@ async def start_captain_vote(
                         (captain_id,)
                     )
     if captain_id is not None:
-        member = await get_or_fetch_member(thread.guild, row["captain_id"])
-        captain_role = discord.utils.get(thread.guild.roles, name=CAPTAIN_ROLE_NAME)
-        await member.remove_roles(captain_role)
+        try:
+            member = await get_or_fetch_member(thread.guild, row["captain_id"])
+            captain_role = discord.utils.get(thread.guild.roles, name=CAPTAIN_ROLE_NAME)
+            await member.remove_roles(captain_role)
+        except discord.NotFound:
+            pass
     for i, column in enumerate(TEAM_PLAYER_COLUMNS):
         player_id = row[column]
         if player_id == 0: continue
