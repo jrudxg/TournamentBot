@@ -38,7 +38,7 @@ CHALLONGE_API_KEY = os.getenv("CHALLONGE_API_KEY")
 CHALLONGE_USER = os.getenv("CHALLONGE_USER")
 
 ALLOWED_GUILD_ID = 1519693560268455990
-TEAM_SIZE = 2
+TEAM_SIZE = 
 EMPTY_SLOT_ID = 0
 TEAM_PICTURE_STORAGE_NAME = "team-picture-storage"
 FRIEND_CHANNEL_NAME = "friends"
@@ -96,8 +96,7 @@ async def get_or_fetch_role(guild: discord.Guild, role_id: int) -> discord.Role 
 
 async def captain_vote_run_at(target_time: datetime):
     now = datetime.now(timezone.utc)
-    #delay = (target_time - now).total_seconds()
-    delay = timedelta(seconds=30).total_seconds()
+    delay = (target_time - now).total_seconds()
 
     if delay > 0:
         await asyncio.sleep(delay)
@@ -135,13 +134,8 @@ async def start_tournament(target_time: datetime):
 @bot.event
 async def on_ready():
     bot.add_dynamic_items(AcceptFriendshipInviteView)
-    try:
-        synced = await bot.tree.sync(guild=discord.Object(id=ALLOWED_GUILD_ID))
-        print(f"Synced {len(synced)} commands to guild {ALLOWED_GUILD_ID}", flush=True)
-    except Exception as e:
-        print(f"Sync failed: {e}", flush=True)
+    await bot.tree.sync(guild=discord.Object(id=ALLOWED_GUILD_ID))
 
-    print(f"{bot.user} is online!", flush=True)
 
     row : DictRow
     with pool.connection() as conn:
@@ -2044,26 +2038,17 @@ async def start_captain_vote_everywhere():
 
     team_channel = discord.utils.get(guild.text_channels, name=TEAM_CHANNEL_NAME)
     if team_channel is None: 
-        print("start_captain_vote_everywhere: kein Team-Channel gefunden", flush=True)
         return
 
     all_threads = team_channel.threads
-    print(f"start_captain_vote_everywhere: {len(all_threads)} Threads gefunden", flush=True)
-
 
     for thread in all_threads:
-        try:
-            result = await start_captain_vote(thread.id)
-            print(f"start_captain_vote_everywhere: Thread {thread.id} -> {result}", flush=True)
-        except Exception as e:
-            print(f"Fehler bei Thread {thread.id}: {e}", flush=True)
+        result = await start_captain_vote(thread.id)
 
 async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
     """Randomly distribute all signed-up players into teams of
     `TEAM_SIZE`, creating a role and a private thread per team.
     """
-
-    TEAM_SLOTS = 5
 
     guild = await get_or_fetch_guild(ALLOWED_GUILD_ID)
 
@@ -2135,7 +2120,7 @@ async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
         if len(group) == 0:
             break
 
-        group.extend([EMPTY_SLOT_ID] * (TEAM_SLOTS - len(group))) 
+        group.extend([EMPTY_SLOT_ID] * (TEAM_SIZE - len(group))) 
 
         amount_of_teams += 1
         player_ids.extend(group)
@@ -2149,7 +2134,7 @@ async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
 
     for team_number in range(amount_of_teams):
         team_name = f"team{team_number + 1}"
-        players = player_ids[team_number * TEAM_SLOTS : (team_number + 1) * TEAM_SLOTS]
+        players = player_ids[team_number * TEAM_SIZE : (team_number + 1) * TEAM_SIZE]
 
         role = await guild.create_role(name=team_name, mentionable=True)
         thread = await teams_channel.create_thread(
@@ -2264,11 +2249,9 @@ async def remove_from_team(
 async def start_captain_vote(
     team_channel_id: int
 ):
-    print(f"start_captain_vote gestartet für {team_channel_id}", flush=True)
     
     thread = await get_or_fetch_channel(team_channel_id)
 
-    print(f"Thread geladen: {thread}", flush=True)
     if not isinstance(thread, discord.Thread):
         return "No thread exists for the team"
 
@@ -2281,10 +2264,8 @@ async def start_captain_vote(
     row : DictRow
     captain_id : int | None = None
 
-    print("vor DB", flush=True)
     with pool.connection() as conn:
             with conn.cursor() as cur:
-                print("DB Verbindung erhalten", flush=True)
                 cur.execute(
                     """--sql
                     SELECT poll_id FROM captain_poll_finish_times
@@ -2373,7 +2354,7 @@ async def start_captain_vote(
                 )
                 VALUES (%s, %s, %s, %s)
                 """,
-                (datetime.now() + timedelta(minutes=3), message.id, thread.id, json.dumps(players, skipkeys=True)) # poll.expires_at print
+                (poll.expires_at, message.id, thread.id, json.dumps(players, skipkeys=True))
             )
 
             cur.execute(
@@ -2456,6 +2437,8 @@ async def handle_finished_poll(
     guild = await get_or_fetch_guild(ALLOWED_GUILD_ID)
     captain_role = discord.utils.get(guild.roles, name=CAPTAIN_ROLE_NAME)
 
+    row : DictRow | None = None
+    member : discord.Member | None = None
     for sorted_answer in sorted_answers:
         playerID  = players[sorted_answer[1].text]
         try:
@@ -2478,11 +2461,27 @@ async def handle_finished_poll(
                 )
                 row_count = cur.rowcount
 
+                cur.execute(
+                    """--sql
+                    SELECT team_role_id FROM teams
+                    WHERE team_channel_id = %s
+                    """,
+                    (channel_discord_id,)
+                )
+                row = cur.fetchone()
+
         if row_count == 0:
-            await member.remove_roles(captain_role)
+            if isinstance(member, discord.Member):
+                await member.remove_roles(captain_role)
             continue
 
         break
+
+
+    if member is not None and row is not None:
+        team_role_id = row["team_role_id"]
+        if team_role_id is not None:
+            await channel.send(f"<@&{team_role_id}> Poll finished. {member.mention} is now your new captain.")
 
 def insert_teams_into_tournament_table():
 
