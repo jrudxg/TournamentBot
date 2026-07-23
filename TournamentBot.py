@@ -1065,7 +1065,7 @@ def has_captain_role():
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
     name="admin_set_team_picture",
-    description="Sets the team picture. If no channel is set, the bot assumes that the picture is from the channel, in which the command was run.",
+    description="Sets the team picture. If no channel is set.",
     guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
 
@@ -1102,7 +1102,7 @@ async def admin_set_team_picture(
 @has_captain_role()
 @bot.tree.command(
     name="captain_set_team_picture",
-    description="Sets the team picture",
+    description="Sets the team picture.",
     guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
 async def captain_set_team_picture(
