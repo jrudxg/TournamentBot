@@ -2050,11 +2050,13 @@ async def start_captain_vote_everywhere():
     all_threads = team_channel.threads
     print(f"start_captain_vote_everywhere: {len(all_threads)} Threads gefunden", flush=True)
 
-    for thread in all_threads:
-        result = await start_captain_vote(thread.id)
-        print(f"start_captain_vote_everywhere: Thread {thread.id} -> {result}", flush=True)
 
-        team_channel = discord.utils.get(guild.text_channels, name=TEAM_CHANNEL_NAME)
+    for thread in all_threads:
+        try:
+            result = await start_captain_vote(thread.id)
+            print(f"start_captain_vote_everywhere: Thread {thread.id} -> {result}", flush=True)
+        except Exception as e:
+            print(f"Fehler bei Thread {thread.id}: {e}", flush=True)
 
 async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
     """Randomly distribute all signed-up players into teams of
@@ -2262,8 +2264,11 @@ async def remove_from_team(
 async def start_captain_vote(
     team_channel_id: int
 ):
+    print(f"start_captain_vote gestartet für {team_channel_id}", flush=True)
     
     thread = await get_or_fetch_channel(team_channel_id)
+
+    print(f"Thread geladen: {thread}", flush=True)
     if not isinstance(thread, discord.Thread):
         return "No thread exists for the team"
 
@@ -2275,8 +2280,11 @@ async def start_captain_vote(
 
     row : DictRow
     captain_id : int | None = None
+
+    print("vor DB", flush=True)
     with pool.connection() as conn:
             with conn.cursor() as cur:
+                print("DB Verbindung erhalten", flush=True)
                 cur.execute(
                     """--sql
                     SELECT poll_id FROM captain_poll_finish_times
