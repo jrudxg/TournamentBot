@@ -38,7 +38,7 @@ CHALLONGE_API_KEY = os.getenv("CHALLONGE_API_KEY")
 CHALLONGE_USER = os.getenv("CHALLONGE_USER")
 
 ALLOWED_GUILD_ID = 1519693560268455990
-TEAM_SIZE = 5
+TEAM_SIZE = 2
 EMPTY_SLOT_ID = 0
 TEAM_PICTURE_STORAGE_NAME = "team-picture-storage"
 FRIEND_CHANNEL_NAME = "friends"
@@ -117,7 +117,7 @@ async def team_creation_run_at(target_time: datetime):
 async def start_tournament(target_time: datetime):
 
     now = datetime.now(timezone.utc)
-    # delay = (target_time - now).total_seconds()
+    delay = (target_time - now).total_seconds()
 
     if delay > 0:
         await asyncio.sleep(delay)
@@ -1200,7 +1200,7 @@ async def captain_set_teamname(
     thread = await get_or_fetch_channel(channel_id)
     await thread.edit(name=new_team_name)
 
-    role = await get_or_fetch_role(interaction.guild, roleID)
+    role = await get_or_fetch_role(interaction.guild, role_id)
     await role.edit(name=new_team_name)
 
     await interaction.response.send_message(output, ephemeral=True)
@@ -2119,7 +2119,7 @@ async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
             group.extend(player_pairs[pair_index])
             pair_index += 1
 
-        while len(group) < 5 and single_index < len(player_ids_singels):
+        while len(group) < TEAM_SIZE and single_index < len(player_ids_singels):
             group.append(player_ids_singels[single_index])
             single_index += 1
 
