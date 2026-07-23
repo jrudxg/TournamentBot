@@ -2043,12 +2043,18 @@ async def start_captain_vote_everywhere():
     all_threads : discord.Thread
 
     team_channel = discord.utils.get(guild.text_channels, name=TEAM_CHANNEL_NAME)
-    if team_channel is None: return
+    if team_channel is None: 
+        print("start_captain_vote_everywhere: kein Team-Channel gefunden", flush=True)
+        return
 
     all_threads = team_channel.threads
+    print(f"start_captain_vote_everywhere: {len(all_threads)} Threads gefunden", flush=True)
 
     for thread in all_threads:
-        await start_captain_vote(thread.id)
+        result = await start_captain_vote(thread.id)
+        print(f"start_captain_vote_everywhere: Thread {thread.id} -> {result}", flush=True)
+
+        team_channel = discord.utils.get(guild.text_channels, name=TEAM_CHANNEL_NAME)
 
 async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
     """Randomly distribute all signed-up players into teams of
