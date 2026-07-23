@@ -40,6 +40,7 @@ CHALLONGE_USER = os.getenv("CHALLONGE_USER")
 ALLOWED_GUILD_ID = 1519693560268455990
 TEAM_SIZE = 5
 EMPTY_SLOT_ID = 0
+TEAM_PICTURE_STORAGE_NAME = "team-picture-storage"
 FRIEND_CHANNEL_NAME = "friends"
 TEAM_CHANNEL_NAME = "teams"
 CAPTAIN_ROLE_NAME = "Captain"
@@ -91,9 +92,6 @@ async def get_or_fetch_member(guild: discord.Guild, member_id: int) -> discord.M
 async def get_or_fetch_role(guild: discord.Guild, role_id: int) -> discord.Role | None:
     return guild.get_role(role_id) or await guild.fetch_role(role_id)
 
-async def get_or_fetch_message(guild: discord.Guild, role_id: int) -> discord.Role | None:
-    return guild.get_role(role_id) or await guild.fetch_role(role_id)
-
 
 
 async def captain_vote_run_at(target_time: datetime):
@@ -127,7 +125,7 @@ async def start_tournament(target_time: datetime):
             if queries.check_if_tournament_started(cur):
                 return
 
-    insertTeamsIntoTournamentTable()
+    insert_teams_into_tournament_table()
 
 # ============================================================
 # Bot Events
@@ -1066,35 +1064,32 @@ def has_captain_role():
 
 @app_commands.checks.has_permissions(administrator=True)
 @bot.tree.command(
-    name="test",
-    description="Sets the team picture",
-    guild=discord.Object(id=ALLOWED_GUILD_ID)
-)
-async def test(
-    interaction: discord.Interaction,
-    message: discord.Message
-):
-    interaction.response.send_message(message.content)
-@app_commands.checks.has_permissions(administrator=True)
-@bot.tree.command(
     name="admin_set_team_picture",
-    description="Sets the team picture",
+    description="Sets the team picture. If no channel is set, the bot assumes that the picture is from the channel, in which the command was run.",
     guild=discord.Object(id=ALLOWED_GUILD_ID)
 )
+
 async def admin_set_team_picture(
     interaction: discord.Interaction,
     team_role: discord.Role,
-    team_picture: str
+    team_picture: discord.Attachment
 ):
+        
+    message_id = await store_team_picture_in_discord(team_picture, interaction.guild)
+    if message_id is None:
+        await interaction.response.send_message("The image cpuldn't be stored", ephemeral=True)
+        return
+
+    
     with pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """--sql
                     UPDATE teams
-                    SET team_picture = %s
+                    SET team_picture_message_id = %s
                     WHERE team_role_id = %s
                     """,
-                    (team_picture, team_role.id)
+                    (message_id, team_role.id)
                 )
                 row_count = cur.rowcount
 
@@ -1112,17 +1107,23 @@ async def admin_set_team_picture(
 )
 async def captain_set_team_picture(
     interaction: discord.Interaction,
-    team_picture: str
+    team_picture: discord.Attachment
 ):
+
+    message_id = await store_team_picture_in_discord(team_picture, interaction.guild)
+    if message_id is None:
+        await interaction.response.send_message("The image cpuldn't be stored", ephemeral=True)
+        return
+    
     with pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """--sql
                     UPDATE teams
-                    SET team_picture = %s
+                    SET team_picture_message_id = %s
                     WHERE captain_id = %s
                     """,
-                    (team_picture, interaction.user.id)
+                    (message_id, interaction.user.id)
                 )
                 row_count = cur.rowcount
 
@@ -1314,7 +1315,7 @@ async def owner_insert_teams_in_tournament(
     interaction: discord.Interaction
 ):
     await interaction.response.defer(ephemeral=True)
-    insertTeamsIntoTournamentTable()
+    insert_teams_into_tournament_table()
     await interaction.followup.send("Teams have successfully been created", ephemeral=True)
 
 
@@ -1336,6 +1337,14 @@ async def admin_reset_all(
     team_channel = discord.utils.get(interaction.guild.text_channels, name=TEAM_CHANNEL_NAME)
     if team_channel is not None:
         for thread in team_channel.threads: await thread.delete()
+
+    team_channel_messages = [message async for message in team_channel.history(limit=None)]
+    await team_channel.delete_messages(team_channel_messages)
+
+    team_picture_storage_channel = discord.utils.get(interaction.guild.text_channels, name=TEAM_PICTURE_STORAGE_NAME)
+    if team_picture_storage_channel is not None:
+        team_picture_messages =  [message async for message in team_picture_storage_channel.history(limit=None)]
+        await team_picture_storage_channel.delete_messages(team_picture_messages)
 
 
     for role_name in [SUBSTITUTE_ROLE_NAME, CAPTAIN_ROLE_NAME]:
@@ -1705,7 +1714,14 @@ async def build_team_profile_embeds(
         ),
         color=discord.Color.blurple(),
     )
-    header.set_thumbnail(url=team_row["team_picture"])
+
+
+    picture_channel = discord.utils.get(guild.text_channels, name=TEAM_PICTURE_STORAGE_NAME)
+    if picture_channel is not None and team_row["team_picture_message_id"]:
+        message = await picture_channel.fetch_message(team_row["team_picture_message_id"])
+        if message.attachments:
+            url = message.attachments[0].url
+            header.set_thumbnail(url)
 
     embeds = [header]
 
@@ -2293,14 +2309,14 @@ async def start_captain_vote(
         captain_role = discord.utils.get(thread.guild.roles, name=CAPTAIN_ROLE_NAME)
         await member.remove_roles(captain_role)
     for i, column in enumerate(TEAM_PLAYER_COLUMNS):
-        id = row[column]
-        if id == 0: continue
+        player_id = row[column]
+        if player_id == 0: continue
         try:
-            user = await get_or_fetch_member(thread.guild, id)
+            user = await get_or_fetch_member(thread.guild, player_id)
             if user is None: continue
             username = f"{user.display_name} ({user.name})"
             playerNames[i] = username
-            playerIDs[i] = id
+            playerIDs[i] = player_id
         except discord.HTTPException:
             pass
 
@@ -2381,7 +2397,7 @@ async def handle_finished_poll(
     if channel is None:
         return
 
-    message = await get_or_fetch_message(channel.guild, poll_discord_id)
+    message = await channel.fetch_message(poll_discord_id)
 
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -2436,7 +2452,7 @@ async def handle_finished_poll(
 
         break
 
-def insertTeamsIntoTournamentTable():
+def insert_teams_into_tournament_table():
 
     names : list[str] = []
     tournamentURL : str
@@ -2472,5 +2488,15 @@ def insertTeamsIntoTournamentTable():
         client.participants.randomize(tournament.id)
         client.tournaments.start(tournament.id)
 
+async def store_team_picture_in_discord(picture : discord.Attachment, guild : discord.Guild):
+    if not picture.content_type or not picture.content_type.startswith("image/"):
+        return
+    picture_channel = discord.utils.get(guild.text_channels, name=TEAM_PICTURE_STORAGE_NAME)
+    if picture_channel is None: return
+
+    file = await picture.to_file()
+
+    message = await picture_channel.send(file=file)
+    return message.id
 
 bot.run(TOKEN)
