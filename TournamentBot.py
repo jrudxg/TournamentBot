@@ -2056,6 +2056,8 @@ async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
     `TEAM_SIZE`, creating a role and a private thread per team.
     """
 
+    TEAM_SLOTS = 5
+
     guild = await get_or_fetch_guild(ALLOWED_GUILD_ID)
 
 
@@ -2126,7 +2128,7 @@ async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
         if len(group) == 0:
             break
 
-        group.extend([EMPTY_SLOT_ID] * (TEAM_SIZE - len(group))) 
+        group.extend([EMPTY_SLOT_ID] * (TEAM_SLOTS - len(group))) 
 
         amount_of_teams += 1
         player_ids.extend(group)
@@ -2140,7 +2142,7 @@ async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
 
     for team_number in range(amount_of_teams):
         team_name = f"team{team_number + 1}"
-        players = player_ids[team_number * TEAM_SIZE : (team_number + 1) * TEAM_SIZE]
+        players = player_ids[team_number * TEAM_SLOTS : (team_number + 1) * TEAM_SLOTS]
 
         role = await guild.create_role(name=team_name, mentionable=True)
         thread = await teams_channel.create_thread(
