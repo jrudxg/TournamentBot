@@ -1253,16 +1253,16 @@ async def admin_delete_team(
                 )
                 row = cur.fetchone()
 
+    if tournament_started:
+            await interaction.response.send_message("The tournament already started.", ephemeral=True)
+            return
+
     if row["captain_id"] is not None:
         try:
             user = await get_or_fetch_member(interaction.guild, row["captain_id"])
             captain_role = discord.utils.get(interaction.guild.roles, name=CAPTAIN_ROLE_NAME)
             await user.remove_roles(captain_role)
         except: pass
-
-    if tournament_started:
-        await interaction.response.send_message("The tournament already started.", ephemeral=True)
-        return
 
     if row is None:
         await interaction.response.send_message("There was no team found with the specific role", ephemeral=True)
