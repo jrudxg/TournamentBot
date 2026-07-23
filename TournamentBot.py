@@ -1077,7 +1077,7 @@ async def admin_set_team_picture(
         
     message_id = await store_team_picture_in_discord(team_picture, interaction.guild)
     if message_id is None:
-        await interaction.response.send_message("The image cpuldn't be stored", ephemeral=True)
+        await interaction.response.send_message("The image couldn't be stored", ephemeral=True)
         return
 
     
@@ -1112,7 +1112,7 @@ async def captain_set_team_picture(
 
     message_id = await store_team_picture_in_discord(team_picture, interaction.guild)
     if message_id is None:
-        await interaction.response.send_message("The image cpuldn't be stored", ephemeral=True)
+        await interaction.response.send_message("The image couldn't be stored", ephemeral=True)
         return
     
     with pool.connection() as conn:
@@ -1130,7 +1130,7 @@ async def captain_set_team_picture(
     if row_count == 0:
         await interaction.response.send_message("An unknown error occured", ephemeral=True)
         return
-    await interaction.response.send_message("The team picture has been changed. Please check with /team_profile if the image works correctly.")
+    await interaction.response.send_message("The team picture has been changed. Please check with /team_profile if the image works correctly.", ephemeral=True)
 
                 
 
