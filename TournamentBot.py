@@ -1890,12 +1890,13 @@ class TeamView(discord.ui.View):
 # ============================================================
 
 def parse_duration(duration: str) -> int:
-    matches = re.findall(r"^(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$", duration.lower())
+    match = re.fullmatch(
+        r"(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?",
+        duration.lower()
+    )
 
-    if not matches:
+    if not match or not any(match.groups()):
         raise ValueError("Invalid duration.")
-
-    total = 0
 
     units = {
         "d": 86400,
@@ -1904,8 +1905,10 @@ def parse_duration(duration: str) -> int:
         "s": 1
     }
 
-    for value, unit in matches:
-        total += int(value) * units[unit]
+    total = 0
+    for value, unit in zip(match.groups(), units):
+        if value:
+            total += int(value) * units[unit]
 
     if total <= 0:
         raise ValueError("Duration must be greater than 0.")
