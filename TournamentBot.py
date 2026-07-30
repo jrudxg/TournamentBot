@@ -38,7 +38,7 @@ CHALLONGE_API_KEY = os.getenv("CHALLONGE_API_KEY")
 CHALLONGE_USER = os.getenv("CHALLONGE_USER")
 
 ALLOWED_GUILD_ID = 1519693560268455990
-TEAM_SIZE = 5
+TEAM_SIZE = 4
 EMPTY_SLOT_ID = 0
 TEAM_PICTURE_STORAGE_NAME = "team-picture-storage"
 FRIEND_CHANNEL_NAME = "friends"
@@ -2055,6 +2055,7 @@ async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
 
     guild = await get_or_fetch_guild(ALLOWED_GUILD_ID)
 
+    TEAM_SLOTS = 5
 
     teams_channel = discord.utils.get(guild.text_channels, name=TEAM_CHANNEL_NAME)
 
@@ -2123,7 +2124,7 @@ async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
         if len(group) == 0:
             break
 
-        group.extend([EMPTY_SLOT_ID] * (TEAM_SIZE - len(group))) 
+        group.extend([EMPTY_SLOT_ID] * (TEAM_SLOTS - len(group))) 
 
         amount_of_teams += 1
         player_ids.extend(group)
@@ -2137,7 +2138,7 @@ async def start_creating_teams() -> tuple[CreateTeamsOutput, str]:
 
     for team_number in range(amount_of_teams):
         team_name = f"team{team_number + 1}"
-        players = player_ids[team_number * TEAM_SIZE : (team_number + 1) * TEAM_SIZE]
+        players = player_ids[team_number * TEAM_SLOTS : (team_number + 1) * TEAM_SLOTS]
 
         role = await guild.create_role(name=team_name, mentionable=True)
         thread = await teams_channel.create_thread(
